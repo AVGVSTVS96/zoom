@@ -78,7 +78,7 @@ export async function claude<T>(system: string, prompt: string, schema: object, 
 
 /** Runs `fn` over `items`, at most `limit` at a time. */
 export async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
+  const out: R[] = [];
   let next = 0;
   const worker = async () => {
     while (next < items.length) {
