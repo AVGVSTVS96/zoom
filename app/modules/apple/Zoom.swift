@@ -22,7 +22,7 @@ final class Pinch: ExactNativeInstance {
     private let module: ZoomModule
     private var z = 2.0, top = 3.0, still = false, ask = ""
     private var placed = false
-    private var start = 2.0, focus = CGPoint.zero
+    private var start = 2.0, base: CGFloat = 1, focus = CGPoint.zero, ticked: Double?
     private var spring: ExactTicket?
     private var velocity = 0.0, goal = 2.0, last = 0.0
     private let tick = UIImpactFeedbackGenerator(style: .light)
@@ -51,19 +51,21 @@ final class Pinch: ExactNativeInstance {
 
     /// One stop per 1.6× of pinch scale; past the ends the scale gives a little and pulls back.
     private func level(_ scale: CGFloat) -> Double {
-        let raw = start - log(Double(max(scale, 0.01))) / log(1.6)
+        let raw = start - log(Double(max(scale / base, 0.01))) / log(1.6)
         let over = raw > top ? raw - top : raw < 1 ? raw - 1 : 0
         return raw - over + 0.2 * tanh(over / 0.2)
     }
 
     private func pinched(_ g: UIPinchGestureRecognizer) {
-        defer { NSLog("zoom-pinch: z %f", z) }
         guard let scroller = probe.scroller else { return }
         let at = g.location(in: scroller), seen = CGPoint(x: at.x - scroller.contentOffset.x, y: at.y - scroller.contentOffset.y)
         switch g.state {
         case .began:
             spring?.stop(); spring = nil
             start = z
+            // UIKit recognizes a pinch some way into it: the chat moves from there, without a jump.
+            base = g.scale
+            ticked = nil
             focus = seen
             tick.prepare()
             events.change("b \(z) \(seen.x) \(seen.y)")
@@ -107,6 +109,7 @@ final class Pinch: ExactNativeInstance {
         if abs(goal - z) < 0.002 && abs(velocity) < 0.02 {
             z = goal
             spring?.stop(); spring = nil
+            if ticked != goal { tap(goal) }
             events.change("e \(goal)")
         } else {
             events.change("m \(z) -1")
@@ -116,7 +119,12 @@ final class Pinch: ExactNativeInstance {
     /// A light tap as the level passes or reaches a stop.
     private func crossed(from a: Double, to b: Double) {
         let lo = min(a, b), hi = max(a, b)
-        guard stride(from: 1.0, through: top, by: 1).contains(where: { $0 != a && $0 >= lo && $0 <= hi }) else { return }
+        guard let stop = stride(from: 1.0, through: top, by: 1).first(where: { $0 != a && $0 >= lo && $0 <= hi }) else { return }
+        tap(stop)
+    }
+
+    private func tap(_ stop: Double) {
+        ticked = stop
         tick.impactOccurred()
         tick.prepare()
     }
@@ -132,7 +140,6 @@ final class Probe: UIView, UIGestureRecognizerDelegate {
     private lazy var pinch: UIPinchGestureRecognizer = {
         let g = UIPinchGestureRecognizer(target: self, action: #selector(changed(_:)))
         g.delegate = self
-        g.cancelsTouchesInView = false
         return g
     }()
 
@@ -166,14 +173,12 @@ final class Probe: UIView, UIGestureRecognizerDelegate {
 
     // As the pinch's delegate, which UIKit asks by the same name as a view.
     override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        guard let host, let found = scroller ?? chat(in: host) else { NSLog("zoom-pinch: no chat scroller"); return false }
-        NSLog("zoom-pinch: should begin %d", found.bounds.contains(g.location(in: found)) ? 1 : 0)
+        guard let host, let found = scroller ?? chat(in: host) else { return false }
         scroller = found
         return found.bounds.contains(g.location(in: found))
     }
 
     @objc private func changed(_ g: UIPinchGestureRecognizer) {
-        NSLog("zoom-pinch: state %d scale %f", g.state.rawValue, g.scale)
         guard let scroller else { return }
         switch g.state {
         case .began:
