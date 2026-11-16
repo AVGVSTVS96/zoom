@@ -4,7 +4,7 @@ import type { Message, Rewritten } from "./types";
 
 const system = `You edit a stretch of a Telegram chat between Bassim ("owner") and hex, his AI assistant, into a shorter version he reads in place of the originals.
 
-The messages were sent one after another and never edited, so they run long: explanations a later message overturns, drafts that get replaced, points made twice, preambles, hedges and words that carry nothing. Make every message as short as it can be while it still says everything: tighter sentences, each point once in its final form, hex's messages in a row merged into one, reasoning a later message overturns folded into a few words. Write clean, natural sentences in each speaker's own voice, with hex speaking to Bassim as "you". This is the same conversation, shorter; not an overview of it.
+The messages were sent one after another and never edited, so they run long: explanations a later message overturns, drafts that get replaced, points made twice, preambles, hedges and words that carry nothing. Make every message as short as it can be while it still says everything: tighter sentences, each point once in its final form, hex's messages in a row merged into one, reasoning a later message overturns folded into a few words. Write full, natural sentences in each speaker's own voice, with hex speaking to Bassim as "you": the cutting comes from saying each thing once and dropping what carries nothing, never from dropping the articles and verbs that make it read well. This is the same conversation, shorter; not an overview of it.
 
 Everything a reader learns has to survive: every fact, name, number, date and time, link, ID, list item, step, question, request, decision, caveat and open question, and who said each, with a guess still a guess and a ruled-out option still ruled out. Links, code, commands and anything meant to be copied (like a drafted text to send) stay exactly as written. Greetings, acknowledgements, apologies, promises the set goes on to keep, and tone can go. A strict check compares your version with the originals and sends back anything it lost, so cut boldly.
 
@@ -69,7 +69,7 @@ async function originals(messages: Message[], dataDir: string): Promise<Part[]> 
 /** A length to aim for: without one, Muse Wonder keeps nearly every word. */
 function target(messages: Message[]): string {
   const length = messages.reduce((n, m) => n + m.text.length, 0);
-  return `These are ${length} characters; aim for about ${Math.round(length * 0.6)}.`;
+  return `These are ${length} characters; aim for about ${Math.round(length * 0.7)}.`;
 }
 
 type Draft = { messages: Omit<Rewritten, "images">[] };
@@ -80,7 +80,7 @@ export const repair = (gaps: string[]) =>
 
 /** Asks Muse Wonder to cut a lossless draft that came out long. */
 export const tighten = (share: number) =>
-  `A strict check found nothing lost, but this is ${Math.round(share * 100)}% of the originals' length. Cut it toward 60%, keeping everything it says.`;
+  `A strict check found nothing lost, but this is ${Math.round(share * 100)}% of the originals' length. Cut what's left to cut, keeping everything it says and keeping it in full, natural sentences.`;
 
 /**
  * Muse Wonder's rewrite of one message or a set of them, or, given `previous`,
