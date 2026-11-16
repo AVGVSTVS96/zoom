@@ -31,6 +31,13 @@ fn place(z: number, totals: number, sections: number, sets: number, short: numbe
 // The place at level `b` for `key` at level `a`: the same key, unless content.anchors names another.
 fn hop(anchors: string[], a: number, b: number, key: string): string = match anchors.filter(x => x.startsWith(`${a}${b}:${key}=`)).at(0) { case some(x) => x.slice(key.length + 4), case none => key }
 
+// How far below the anchor's place in the chat (its title's bottom, plus its offset into the body) the
+// spot under the fingers is at `z`. `held` is [title, the spot's offset under a title, its share of the
+// message under the fingers, that message's Short and Full heights]; `title` is the title's height now.
+// A title holds the spot's offset; a message holds the spot's share of whichever of its forms shows, its
+// title's on the map, so a long message zooms out to its row under the fingers.
+fn spot(z: number, held: number[], title: number): number = nth(held, 0) == 1 ? nth(held, 1) : nth(held, 2) * (nth(held, 3) * shortOf(z) + nth(held, 4) * fullOf(z) + title * mapOf(z)) - title * mapOf(z)
+
 fn below(a: Geometry, b: Geometry): number = a.unavailable or b.unavailable ? 0 : a.y - b.y
 
 component App
@@ -58,8 +65,9 @@ component App
   state scrollY = 0
   state y0 = 0
   state above: number[] = [0, 0, 0, 0]
-  // The anchor's offset into its set's body at Short and at Full, and the fingers' height above it.
-  state inset: number[] = [0, 0, 0]
+  // The anchor's offset into its set's body at Short and at Full, and where the fingers are on it (spot's `held`).
+  state inset: number[] = [0, 0]
+  state held: number[] = [1, 0, 0, 0, 0]
   state anchor = ""
   state anchorShort = ""
   state anchorFull = ""
@@ -122,7 +130,8 @@ component App
     let chat = frame("chat")
     let fx = x < 0 ? aimX : x
     let fy = y < 0 ? aimY : y
-    let hits = elementsFromPoint(chat.x + fx, chat.y + fy).filter(i => i.startsWith("t-") or i.startsWith("1-") or i.startsWith("2-"))
+    // Over a section heading or a gap, the nearest title or message above or below.
+    let hits = [0, 16, -16, 32, -32, 56, -56, 88, -88, 128, -128].map(d => elementsFromPoint(chat.x + fx, chat.y + fy + d).filter(i => i.startsWith("t-") or i.startsWith("1-") or i.startsWith("2-"))).flat()
     let hit = match hits.at(0) { case some(i) => i, case none => (focus == "" ? `t-${newest}` : focus) }
     let key = hit.slice(2)
     let kind = hit.startsWith("1-") ? 1 : (hit.startsWith("2-") ? 2 : 3)
@@ -135,7 +144,12 @@ component App
     let fIn = kind == 3 ? 0 : below(frame(`1-${full}`), frame(`c1-${set}`))
     above = [sections, a, sum(shorts.slice(0, a)) + sIn, sum(fulls.slice(0, a)) + fIn]
     let t = frame(`t-${set}`)
-    inset = [sIn, fIn, fy - (t.y + t.height - chat.y + sIn * shortOf(now) + fIn * fullOf(now))]
+    inset = [sIn, fIn]
+    let base = t.y + t.height - chat.y + sIn * shortOf(now) + fIn * fullOf(now)
+    let hS = kind == 3 ? 0 : frame(`2-${short}`).height
+    let hF = kind == 3 ? 0 : frame(`1-${full}`).height
+    let tall = hS * shortOf(now) + hF * fullOf(now) + t.height * mapOf(now)
+    held = [kind == 3 ? 1 : 0, fy - base, tall > 0 ? (fy - base + t.height * mapOf(now)) / tall : 0, hS, hF]
     anchor = set
     anchorShort = kind == 3 ? "" : short
     anchorFull = kind == 3 ? "" : full
@@ -151,8 +165,8 @@ component App
     z = now
     let fy = y < 0 ? y0 : y
     let t = frame(`t-${anchor}`)
-    let off = t.y + t.height - frame("chat").y + nth(inset, 0) * shortOf(was) + nth(inset, 1) * fullOf(was) - (fy - nth(inset, 2))
-    let grows = place(now, totals, nth(above, 0), nth(above, 1), nth(above, 2), nth(above, 3)) - place(was, totals, nth(above, 0), nth(above, 1), nth(above, 2), nth(above, 3))
+    let off = t.y + t.height - frame("chat").y + nth(inset, 0) * shortOf(was) + nth(inset, 1) * fullOf(was) + spot(was, held, t.height) - fy
+    let grows = place(now, totals, nth(above, 0), nth(above, 1), nth(above, 2), nth(above, 3)) - place(was, totals, nth(above, 0), nth(above, 1), nth(above, 2), nth(above, 3)) + spot(now, held, t.height) - spot(was, held, t.height)
     scrollY = max(0, scrollY + off + grows)
 
   action rest(stop: number)
