@@ -64,11 +64,6 @@ async function originals(messages: Message[], dataDir: string): Promise<Part[]> 
   return parts;
 }
 
-const target = (messages: Message[]) => {
-  const length = messages.reduce((n, m) => n + m.text.length, 0);
-  return `These are ${length} characters. Aim for about half that; a strict check follows and tells you anything to put back.`;
-};
-
 type Draft = { messages: Omit<Rewritten, "images">[] };
 
 /**
@@ -82,7 +77,7 @@ export async function rewrite(
 ): Promise<Rewritten[]> {
   const turns: Turn[] = [
     { role: "system", content: system },
-    { role: "user", content: [...(await originals(messages, dataDir)), { type: "text", text: target(messages) }] },
+    { role: "user", content: await originals(messages, dataDir) },
   ];
   if (previous) {
     const draft: Draft = { messages: previous.draft.map(({ author, text, from }) => ({ author, text, from })) };

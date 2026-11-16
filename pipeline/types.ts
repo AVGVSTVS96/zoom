@@ -14,6 +14,8 @@ export type Message = {
   replyToText?: string;
   forwardedFrom?: string;
   editedAt?: string;
+  /** Sent before the window and edited inside it. */
+  olderEditedInWindow?: boolean;
   poll?: string[];
 };
 

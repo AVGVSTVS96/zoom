@@ -11,6 +11,7 @@ type Raw = {
   reply_to_text?: string;
   forwarded_from?: string;
   edited_at?: string;
+  older_message_edited_in_window?: boolean;
   poll_options?: string;
 };
 
@@ -29,6 +30,7 @@ export async function source(file: string): Promise<Source> {
     ...(m.reply_to_text && { replyToText: m.reply_to_text }),
     ...(m.forwarded_from && { forwardedFrom: m.forwarded_from }),
     ...(m.edited_at && { editedAt: m.edited_at }),
+    ...(m.older_message_edited_in_window && { olderEditedInWindow: true }),
     ...(m.poll_options && { poll: m.poll_options.split(" / ") }),
   }));
   return { thread: raw.thread, from: raw.from, to: raw.to, messages };
