@@ -27,7 +27,7 @@ type Raw = {
 type Rewritten = { author: Author; text: string; from: number[]; images: string[] };
 type Loss = { score: number; lossless: boolean };
 type Unit = { text: string; verdict: string; detail?: string };
-type RewriteSet = { id: string; messageIds: number[]; rewrite: Rewritten[]; check: { loss: Loss; units: Unit[] } };
+type RewriteSet = { id: string; messageIds: number[]; rewrite: Rewritten[]; check: { loss: Loss; units: Unit[]; additions?: unknown[] } };
 type Set = { id: string; title: string; messageIds: number[]; waiting?: string };
 type Section = { id: string; title: string; sets: Set[] };
 
@@ -46,10 +46,20 @@ const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 const byId = new Map(thread.messages.map((m) => [m.id, m]));
 const rewrites = new Map(zoom?.sets.map((s) => [s.id, s]));
 const placed = structure.sections.flatMap((s) => s.sets.flatMap((x) => x.messageIds));
-const lost = thread.messages.filter((m) => !placed.includes(m.id)).map((m) => m.id);
 const twice = placed.filter((id, i) => placed.indexOf(id) !== i);
-if (lost.length || twice.length || placed.some((id) => !byId.has(id)))
-  throw new Error(`structure.json must hold every message once: missing ${lost}, twice ${twice}`);
+const unknown = placed.filter((id) => !byId.has(id));
+if (twice.length || unknown.length) throw new Error(`structure.json places ${twice} twice and ${unknown} that aren't in the thread`);
+// A message the grouping hasn't placed yet still shows, in a last section, one set to a message:
+// nothing in the thread goes missing from the app.
+const unplaced = thread.messages.filter((m) => !placed.includes(m.id));
+if (unplaced.length) {
+  console.warn(`structure.json doesn't place ${unplaced.map((m) => m.id)}; they go under "Not sorted yet"`);
+  structure.sections.push({
+    id: "unsorted",
+    title: "Not sorted yet",
+    sets: unplaced.map((m) => ({ id: `unsorted-${m.id}`, title: oneLine(m.text).slice(0, 28) || "Photo", messageIds: [m.id] })),
+  });
+}
 
 // Photos ship inside the app, never in git.
 const media = join(app, "assets", "media");
@@ -61,68 +71,96 @@ const photo = (file?: string) => {
   return `assets/media/${basename(file)}`;
 };
 
-const blank = { set: "", mine: false, text: "", title: "", detail: "", image: "", reply: "", note: "", waiting: "", count: 0, tint: "", poll: [] as string[], flag: "" };
-type Row = typeof blank & { key: string; kind: string };
-const row = (key: string, kind: string, fields: Partial<Row>): Row => ({ ...blank, ...fields, key, kind });
-const tints = ["blue", "orange", "green", "purple", "pink", "teal", "indigo", "brown"].map((t) => `-exact-system-${t}`);
+const percent = (score: number) => `${Math.floor(score * 1000) / 10}%`;
 
-const original = (key: string, set: string, m: Raw): Row =>
-  row(key, "message", {
-    set,
-    mine: m.author === "owner",
-    text: m.image && m.text === "(photo)" ? "" : m.text,
-    detail: time(m.at),
-    image: photo(m.image),
-    reply: m.reply_to_text ? oneLine(m.reply_to_text).slice(0, 160) : "",
-    note: [m.forwarded_from && "Forwarded", m.edited_at && "Edited"].filter(Boolean).join(" · "),
-    poll: m.poll_options ? m.poll_options.split(" / ") : [],
-  });
-
-const one: Row[] = [], two: Row[] = [], three: Row[] = [];
-const places: { set: string; one: string; two: string; three: string }[] = [];
-structure.sections.forEach((section, i) => {
-  const tint = tints[i % tints.length];
-  const ids = section.sets.flatMap((s) => s.messageIds);
-  const head = { set: section.sets[0].id, title: section.title, tint, count: ids.length, detail: `${ids.length} messages` };
-  one.push(row(`1-s-${section.id}`, "section", head));
-  two.push(row(`2-s-${section.id}`, "section", head));
-  three.push(row(`3-s-${section.id}`, "section", head));
-  for (const set of section.sets) {
-    const msgs = set.messageIds.map((id) => byId.get(id)!);
-    const span = msgs.length > 1 && time(msgs[0].at) !== time(msgs.at(-1)!.at) ? `${when(msgs[0].at)} – ${day(msgs.at(-1)!.at) === day(msgs[0].at) ? time(msgs.at(-1)!.at) : when(msgs.at(-1)!.at)}` : when(msgs[0].at);
-    const caption = { set: set.id, title: set.title, detail: span, tint, count: msgs.length };
-    one.push(row(`1-${set.id}`, "set", caption));
-    for (const m of msgs) one.push(original(`1-${set.id}-${m.id}`, set.id, m));
-
-    two.push(row(`2-${set.id}`, "set", caption));
-    const rewrite = rewrites.get(set.id);
-    if (rewrite?.check.loss.lossless) {
-      rewrite.rewrite.forEach((r, n) =>
-        two.push(row(`2-${set.id}-${n}`, "line", { set: set.id, mine: r.author === "owner", text: r.text, image: photo(r.images[0]), count: r.from.length })),
-      );
-    } else {
-      // The design's rule 3: a set whose check isn't lossless shows its originals here.
-      const flag = rewrite ? "Muse Wonder's version lost something, so these are the originals" : "";
-      msgs.forEach((m, n) => two.push({ ...original(`2-${set.id}-${n}`, set.id, m), flag: n === 0 ? flag : "" }));
-    }
-
-    three.push(row(`3-${set.id}`, "entry", { ...caption, detail: span, waiting: set.waiting ?? "" }));
-    places.push({ set: set.id, one: `1-${set.id}`, two: `2-${set.id}`, three: `3-${set.id}` });
-  }
+// A message as its level shows it: Full adds its time, the message it replies to, a photo, a poll's
+// options and whether it was forwarded or edited; Short is Muse Wonder's text alone. A post older than
+// the window and edited inside it shows the edit's time.
+type Raw2 = Raw & { older_message_edited_in_window?: boolean; sent_by?: string | null };
+const message = (key: string, m: Raw2) => ({
+  key,
+  mine: m.author === "owner",
+  text: m.image && m.text === "(photo)" ? "" : m.text,
+  time: m.older_message_edited_in_window ? when(m.edited_at ?? m.at) : time(m.at),
+  image: photo(m.image),
+  reply: m.reply_to_text ? oneLine(m.reply_to_text).slice(0, 160) : "",
+  note: [m.forwarded_from && "forwarded", m.edited_at && "edited", m.sent_by && `sent by ${m.sent_by}`].filter(Boolean).join(" · "),
+  poll: m.poll_options ? m.poll_options.split(" / ") : [],
 });
+const shown = (m: Raw2) => m.older_message_edited_in_window ? m.edited_at ?? m.at : m.at;
 
-const loss = zoom?.loss;
+// Where a zoom lands: `<from level><to level>:<key>=<key>` for every place whose key differs between
+// two levels (docs/design.md, Zooming). An original's key is `msg-<id>`; a rewritten message's is the
+// first original it carries, so a pinch in lands on that original.
+const anchors: string[] = [];
+const stale: string[] = [];
+const tally = { units: 0, kept: 0, additions: 0 };
+const sections = structure.sections.map((section) => ({
+  id: section.id,
+  title: section.title,
+  time: when(shown(byId.get(section.sets[0].messageIds[0])!)),
+  sets: section.sets.map((set) => {
+    const msgs = set.messageIds.map((id) => byId.get(id)!);
+    // A rewrite counts only for the messages it was written from: when the grouping moves a message,
+    // the set shows its originals until the pipeline rewrites it again.
+    const written = rewrites.get(set.id);
+    const rewrite = written && written.messageIds.join() === set.messageIds.join() ? written : undefined;
+    if (written && !rewrite) stale.push(set.id);
+    const loss = rewrite?.check.loss as (Loss & { units: number; unitsKept: number; verbatim: number; verbatimKept: number; additions: number }) | undefined;
+    if (loss) {
+      tally.units += loss.units + loss.verbatim;
+      tally.kept += loss.unitsKept + loss.verbatimKept;
+      tally.additions += loss.additions;
+    }
+    // The gate: only a lossless rewrite stands in for its originals at Short.
+    const passed = Boolean(loss?.lossless) && !loss?.additions && !rewrite?.check.additions?.length;
+    const full = msgs.map((m) => message(`msg-${m.id}`, m));
+    const used = new Set<string>();
+    const short = passed
+      ? rewrite!.rewrite.map((r, n) => {
+          const first = r.from.find((id) => set.messageIds.includes(id));
+          let key = first ? `msg-${first}` : `${set.id}-${n}`;
+          if (used.has(key)) key = `${key}-${n}`;
+          used.add(key);
+          return { ...message(key, { ...byId.get(first ?? msgs[0].id)!, text: r.text, image: r.images[0] }), time: "", reply: "", note: "", from: r.from };
+        })
+      : full.map((m) => ({ ...m, from: [Number(m.key.slice(4))] }));
+    for (const m of short) {
+      const down = m.from.find((id) => set.messageIds.includes(id));
+      if (`msg-${down}` !== m.key) anchors.push(`21:${m.key}=${down ? `msg-${down}` : set.id}`);
+      anchors.push(`23:${m.key}=${set.id}`);
+    }
+    for (const m of msgs) {
+      // An original no rewritten message carries (said twice, or superseded) lands on the one before it.
+      const up = short.findLast((r) => r.from.includes(m.id)) ?? short.findLast((r) => (r.from[0] ?? 0) <= m.id);
+      if (up?.key !== `msg-${m.id}`) anchors.push(`12:msg-${m.id}=${up?.key ?? set.id}`);
+      anchors.push(`13:msg-${m.id}=${set.id}`);
+    }
+    return {
+      id: set.id,
+      title: set.title,
+      count: msgs.length,
+      kept: loss ? (passed ? "lossless" : `${percent(loss.score)} came through`) : "",
+      original: !passed,
+      short: short.map(({ from, ...m }) => m),
+      full,
+    };
+  }),
+}));
+
+if (stale.length) console.warn(`zoom.json rewrote ${stale} from other messages than structure.json now holds; they show their originals`);
+const sets = sections.flatMap((s) => s.sets);
+const rewritten = sets.filter((s) => s.kept !== "").length;
 const content = {
-  title: "General",
-  span: `${when(thread.from)} – ${when(thread.to)}`,
-  messages: thread.messages.length,
-  kept: loss ? `${Math.round(loss.score * 1000) / 10}% kept` : "",
-  lossless: loss?.lossless ?? false,
-  one,
-  two,
-  three,
-  places,
+  totals: [
+    `${thread.messages.length} messages`,
+    `${sets.length} sets`,
+    tally.units
+      ? `${percent(tally.kept / tally.units)} came through Muse Wonder${tally.additions ? `, ${tally.additions} added` : ""}${rewritten < sets.length ? ` (${rewritten} of ${sets.length} sets checked)` : ""}`
+      : "Muse Wonder is still rewriting",
+  ].join(" · "),
+  anchors,
+  sections,
 };
 writeFileSync(join(app, "content.json"), `${JSON.stringify(content, null, 1)}\n`);
-const concise = two.filter((r) => r.kind === "line").length;
-console.log(`app/content.json: ${thread.messages.length} messages, ${places.length} sets in ${structure.sections.length} sections, ${concise ? `${concise} concise messages` : "no rewrites yet (level 2 shows the originals)"}`);
+console.log(`app/content.json: ${thread.messages.length} messages, ${sets.length} sets in ${sections.length} sections, ${sets.filter((s) => !s.original).length} rewritten losslessly`);
