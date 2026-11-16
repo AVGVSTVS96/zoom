@@ -1,6 +1,6 @@
 # Design
 
-zoom reads one chat at three levels. Every level holds the same messages in the same order, so zooming changes how much each one says and never where it is.
+zoom reads one chat at three levels. Every level is the chat itself, whole and in chat order, so zooming changes how much each message says and never where it is.
 
 ## The data
 
@@ -15,20 +15,20 @@ type Section = { id: string; title: string; sets: Set[] };
 // Level 2: the unit Muse Wonder rewrites.
 type Set = {
   id: string;
-  title: string; // its one line on the map, 28 characters at most
-  messageIds: number[]; // level 1, in chat order
-  waiting?: string; // what the exchange leaves with you
+  title: string; // its one line on the map
+  messageIds: number[]; // level 1: a run of the chat, no gaps
 };
 ```
 
 ```
-section            "You asked"
-└─ set             "Dark mode by default"
+section            "Moving day"
+└─ set             "The van is booked"
    ├─ message      the request
+   ├─ message      "on it"
    └─ message      the answer
 ```
 
-Reading order is file order at every level: sections, then a section's sets, then a set's messages. Every message is in exactly one set and every set in exactly one section; `bun scripts/check-structure.ts` fails if that stops being true.
+Read top to bottom, the file's message ids are the chat's ids ascending: every message once, none moved. `bun scripts/check-structure.ts` fails when that stops being true. Titles are 28 characters at most.
 
 `data/zoom.json` is what the app loads, typed by `Zoom` in `pipeline/types.ts`:
 
@@ -41,31 +41,42 @@ Reading order is file order at every level: sections, then a section's sets, the
 
 The app walks `sections`, and for each set id reads the rewrite from `sets` and the originals from `messages`.
 
-Three things the grouping needs from `zoom.json`:
+Four things the design needs from `zoom.json`:
 
-1. A set's rewrite is a short run of messages, each with its author and the ids it carries, so level 2 is still a chat.
-2. A message keeps the text of the message it replies to, since that message can sit outside the window.
-3. A set whose check is not lossless shows its originals at level 2.
+1. A set's rewrite is a short run of messages, each with its author and `from`, the ids of the originals it carries. Level 2 is still a chat, and `from` is how a pinch finds its place.
+2. A message keeps the text of the message it replies to.
+3. A message that is older than the window and was edited inside it says so, and its time is the edit's.
+4. A set whose check is not lossless shows its originals at level 2.
+
+## From the post
+
+[Fabian Rohlik's mockup](https://x.com/fabrohl/status/2121732490318495794) pinches a chat out into an overview and back.
+
+| kept from it                                 | added here                                            |
+| -------------------------------------------- | ----------------------------------------------------- |
+| pinch on the chat itself, no separate screen | a middle level: the same messages, rewritten shorter  |
+| the overview keeps chat order                | a row on the overview is an exchange, not one message |
+| topic headings with their time on the right  | a measured check that the shorter level loses nothing |
+| one line per row, tap a row to land on it    | the place under the fingers holds through the pinch   |
 
 ## One list, three states
 
-The whole app is one list of sets under section headings. A set is a title and a body, and the level decides the body.
+The whole app is one list: the chat, cut into sets under section headings. A set is a title and a body, and the level decides the body. The examples are invented.
 
 ```
 Map                  Short                    Full
 ───────────────      ─────────────────────    ─────────────────────
-You asked            You asked                You asked
+Moving day  9:02     Moving day       9:02    Moving day       9:02
 
-● A video            ● A video            3   ● A video            3
-  Dark mode            you  what is this,       you  6:51 PM
-  A missing file       worth using?             https://… what is
-                       hex  a launch promo      this, is it worth
-Outages                for a database.          using for…
-                       Keep it saved,           hex  6:53 PM
-  Down 5 minutes       don't adopt it.          Looking into it,
-  Slow after…                                   I'll reply here…
-                       Dark mode          2     hex  8:43 PM
-                       …                        That video is a…
+The van…       3     The van is booked        The van is booked
+Boxes          2       you  book a van for      you  9:02 AM
+Keys           1       Saturday morning         can you book a van
+                       hex  booked, 8 to        for sat, morning
+Dinner      6:40       noon, $89. Bring         if possible
+                       your license.            hex  9:02 AM
+Table for…     4                                On it.
+                     Boxes                      hex  9:10 AM
+                       …                        Booked: Saturday…
 ```
 
 | level | name  | a set's body                         | for                                   |
@@ -76,55 +87,45 @@ Outages                for a database.          using for…
 
 The title is the handle. A set's title is the same words at the same left edge at all three levels: a line on the map, the heading over the rewrite, the heading over the originals. It is what the eye holds while everything around it changes.
 
-What a row carries, and nothing else:
+What is on screen, and nothing else:
 
-- **Title**, with a dot before it when the set has `waiting`. The dot is the only accent color in the app.
-- **Time** of its first message, on the map.
-- **Message count** at Short and Full, so a three-line rewrite says it stands for thirteen messages.
+- **Section heading**: its title, and the time of its first message on the right.
+- **Set title**, with its message count on the map, so a row says how much is behind it.
 - **Body.** Your messages sit right in a bubble and hex's run full width as text, at Short and at Full. Full adds each message's time, the quoted message under a reply, the photo, a poll's options, and "forwarded" or "edited" where true.
+- **One line of totals** above the first section on the map: messages, sets, and the lossless number (see [Lossless](#lossless)).
 
-The map opens with one line of totals: messages, how many wait on you, and the lossless number (see [Lossless](#lossless)). The app opens at Short, because that is the level made for reading, and comes back to the level and set it was left on.
+The newest message is at the bottom, where a chat keeps it. The app opens at Short on the newest set, and after that comes back to the level and message it was left on.
 
 ## Grouping
+
+### Order
+
+Chat order, exactly, at every level. A set is a run of consecutive messages and a section is a run of consecutive sets, so nothing is ever moved to sit with its kind. Chat order is message id order: a post edited later keeps the place it was first sent in.
 
 ### Sets
 
 A set is what would have been one exchange had it been written once, with hindsight.
 
-1. **An ask and everything said until it settles.** The request, the "on it", the answer, the follow-up. Thirteen messages of diagnosis that end in one confirmed cause are one set.
-2. **A message goes with what it answers**, even when an unrelated message landed in between. Three sets here reach across one.
-3. **A new question starts a new set**, even on the same subject. The long conversation here is three: the cause and the fixes, the text drafted to send, the second opinion.
-4. **Versions of one post are one set.** A status post and its repost are the same message twice.
-5. **A notice nobody answered is a set of one.**
+1. **An ask and everything said until the subject changes.** The request, the "on it", the answer, the correction, the second opinion. Twenty-one messages in twelve minutes on one problem are one set, so the rewrite states each thing once, as it stood at the end.
+2. **A set never reaches across another subject.** When an unrelated notice lands between a question and its answer, that is three sets, in the order they happened.
+3. **Twin posts are one set.** Two posts in a row that carry the same list say it once.
+4. **A notice nobody answered is a set of one.**
+
+Most of what a lossless rewrite can take out is repetition between messages, which is why a set is the whole exchange and not a piece of it.
 
 ### Sections
 
-A hub chat is many unrelated exchanges, so its sections are kinds: who started it, and what became of it.
+A section is a stretch of the chat that hangs together: one subject, or one sitting when the subjects come too fast to head each one. It starts where the subject or the sitting changes. Its title names the subject, or the biggest things in the sitting.
 
-| section        | what goes in it                                  | sets | messages |
-| -------------- | ------------------------------------------------ | ---- | -------- |
-| New topics     | you asked, and hex opened a topic for it         | 5    | 11       |
-| You asked      | you asked, and hex answered or did it in place   | 3    | 7        |
-| _its subject_  | a conversation that runs to three sets or more   | 3    | 21       |
-| hex brought up | mail, deliveries and ideas hex raised on its own | 5    | 7        |
-| Outages        | hex or a machine went down, and the fixes        | 4    | 6        |
-| Status posts   | pinned posts kept current, one set per topic     | 7    | 8        |
-|                |                                                  | 27   | 60       |
+This chat is 7 sections, 27 sets, 61 messages. A hub chat like this one changes subject at almost every set, so most of its sections are sittings; a chat that is one long conversation gets a section per subject.
 
-Order:
+### Edited posts
 
-- Sections you started come first, in the order they began. Then hex's own, from what asks the most of you to what asks the least.
-- Sets inside a section, and messages inside a set, stay in chat order.
-
-Level 1 is therefore every message grouped with its exchange, each with its real time, and not the raw chat sequence. In a hub chat the neighbors in time are unrelated, so nothing is lost by moving an exchange next to its kind, and what a rewrite stands for is always directly under it. In a chat that is one running conversation, the same rules give sections that follow each other in time, and the order is the chat's.
-
-### Waiting
-
-A set has `waiting` when the exchange ends with something for you: an open question, a poll, an offer, a thing to do. It names that thing in one sentence. Six sets have it here. Status posts never do, because they are the list of what waits.
+A status post edited inside the window is an older message. It sits where it was first sent, above everything else, under its own heading, with "edited" and the edit's time. It goes through the same rewrite and the same gate as any set. It will come out close to its own length, because hex already keeps it current by editing it in place: it is the one kind of message that was written with hindsight.
 
 ### Titles
 
-A title names the thing, and the outcome when there is one: "Down 5 minutes", not "Outage report". 28 characters keeps it on one line on a folded Duo.
+A title names the thing, and the outcome when there is one: "Back up after 48 min", not "Outage report". When a section holds one set, the two titles say different things: the subject, then what came of it. 28 characters stay on one line beside a count on the Duo's cover.
 
 ## Zooming
 
@@ -133,14 +134,22 @@ A title names the thing, and the outcome when there is one: "Down 5 minutes", no
 Full  ─────────────────▶  Short  ─────────────────▶  Map
       ◀─────────────────         ◀─────────────────
         pinch apart, or              pinch apart, or
-        tap the set                  tap the set
+        tap the message              tap the row
 ```
 
 **Pinch anywhere.** The levels are stops on one continuous scale, and the pinch moves along it with the fingers: bodies grow or shrink in height while their two contents cross-dissolve, driven by the fingers and not by a timer. One long pinch can pass through all three. On release the list springs to the nearer stop, or the next one in the direction of a fast pinch. A light haptic marks each stop as the fingers cross it.
 
-**The set under the fingers stays under the fingers.** The pinch's midpoint picks a set, and that set's title keeps its place on screen for the whole gesture. Because every level is the same list in the same order, what was above stays above and what was below stays below. On a section heading the anchor is the heading.
+**The place under the fingers stays under the fingers.** The pinch's midpoint picks a message, and the list holds that place on screen for the whole gesture:
 
-**Tap goes one level in.** Tap a line on the map to read that set; tap a set at Short to see its originals. Same motion as the pinch, anchored on the tapped set, about a quarter of a second.
+| under the fingers             | zooming in                       | zooming out                                 |
+| ----------------------------- | -------------------------------- | ------------------------------------------- |
+| an original, at Full          |                                  | the rewritten message whose `from` holds it |
+| a rewritten message, at Short | the first original in its `from` | its set's row on the map                    |
+| a row on the map              | that set's title at Short        |                                             |
+
+Because every level is the same chat in the same order, what was above stays above and what was below stays below.
+
+**Tap goes one level in**, to the same place a pinch would: a row on the map opens that set at Short, a rewritten message opens the originals it carries. Same motion as the pinch, about a quarter of a second.
 
 **A three-stop control goes anywhere, one-handed.** Map, Short, Full, at the bottom edge in thumb reach. Its thumb tracks the pinch while fingers are down, so it doubles as the level indicator. It is the only control in the app.
 
@@ -150,18 +159,19 @@ Starting values, to tune on the Duo: one stop per 1.6× of pinch scale, and a st
 
 ## The Duo
 
-Layout follows the viewport's width and never the fold. A reading column is at least 380pt, so two fit from 760pt; that is a starting value too.
+One column at every size. A set never changes column, so the anchor rule holds everywhere.
 
-| width           | Map                                             | Short                | Full                                     |
-| --------------- | ----------------------------------------------- | -------------------- | ---------------------------------------- |
-| one column fits | one column                                      | one column           | originals replace the rewrite            |
-| two columns fit | sections in columns, the whole chat on a screen | one column, centered | rewrite on the left, originals beside it |
+| screen           | size      | layout                                        |
+| ---------------- | --------- | --------------------------------------------- |
+| cover, portrait  | 466 × 678 | one column                                    |
+| cover, landscape | 678 × 466 | one column                                    |
+| open, portrait   | 669 × 951 | one column                                    |
+| open, landscape  | 951 × 669 | the map stays on the left, the chat beside it |
 
-Open, Full puts each set's rewrite next to the messages it was written from, which is the lossless claim made visible: read across and check. Zooming from Short, the rewrite slides left as its originals open on the right.
+Layout follows the viewport's width and never the fold. When the viewport has room for a 300pt map beside a reading column of 560pt or more, the map stays: it marks the set being read, a tap on a row brings that set to the top, and the control has two stops, Short and Full. Narrower than that, the map is the third stop. Both numbers are starting values.
 
-- Every orientation, folded and open. Folding or rotating keeps the level and the set.
-- A column gutter lands on the hinge when there is one.
-- The level control sits at the bottom, clear of the hinge and the home indicator. No header.
+- Folding or rotating keeps the level and the message.
+- The control sits at the bottom, clear of the home indicator. No header.
 - Light and dark.
 
 ## Lossless
@@ -190,4 +200,12 @@ The writer never grades itself: meaning is checked by a different model than wro
 
 **The gate.** Lossless is a pass or a fail, not a score to trade against brevity. A set that misses a full score, or adds anything, shows its originals at Short, marked "original", so Short never says less than the chat did. In the reader the originals are one pinch away. Where a rewrite replaces the original, as when editing a sent message, the gate is the only protection: the edit goes out only at a full score, and the original is saved first.
 
-Lossless is measured inside a set. Two sets that repeat each other, like two status posts carrying the same list, each keep their copy.
+Lossless is measured inside a set. Two sets that repeat each other each keep their copy.
+
+## Choices
+
+- **Chat order over sections by kind.** Grouping by kind (requests, notices, outages, status posts) makes a tidier map, and puts the newest message in the middle of the list and one afternoon in three places. The newest message belongs at the bottom, and a level that moves messages is no longer the chat.
+- **No "waiting on you" mark.** Which exchanges still wait on you changes after the window closes and is a judgment the lossless check cannot test. A mark that is sometimes wrong is worse than none for someone who misses messages. It belongs here once it comes from hex's own list of open questions.
+- **No unread line.** It needs to know what you have read, which the chat's export does not say. Until then, new is where a chat keeps it: at the bottom, where the app opens.
+- **No rule of their own for status posts.** They go through the same gate. Being pinned and edited in place, they are already short for what they hold.
+- **Invented examples.** The chat this was designed on is private, so nothing in this file quotes it.
