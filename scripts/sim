@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Runs on the server: drives zoom on the Mac's iPhone Duo simulator ("zoom Duo") with Exact's agent in
+# each pose, light and dark, and copies the screenshots back. With no ops it shoots every level; ops are
+# the agent's (`bun exact.mjs agent --help`), and a screenshot named `<name>.png` lands as
+# <name>-<pose>-<appearance>.png in $SHOTS (~/hex/scratch/zoom/shots/<commit>/).
+#   scripts/sim
+#   POSES=cover-up APPEARANCES=dark scripts/sim "clock data" "tap level-1 pinch 0.7" "clock settle" "screenshot pinch.png"
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+shots=${SHOTS:-$HOME/hex/scratch/zoom/shots/$(git -C "$here" rev-parse --short HEAD)}
+POSES=${POSES:-cover-up open-up open-side}
+APPEARANCES=${APPEARANCES:-light dark}
+ops=("$@")
+[ ${#ops[@]} -gt 0 ] || ops=("clock data" "clock settle" "screenshot map.png" "tap zoom-2" "clock settle" "screenshot concise.png"
+  "tap zoom-1" "clock settle" "screenshot messages.png")
+mkdir -p "$shots"
+# The Mac takes one build or simulator run at a time; hex Exact's scripts hold the same lock.
+mkdir -p ~/.local/share/hex-exact && exec 9>~/.local/share/hex-exact/mac.lock && flock 9
+
+ssh -o ConnectTimeout=15 -o BatchMode=yes mac true </dev/null || { echo "the Mac didn't answer" >&2; exit 1; }
+bun "$here/scripts/content.ts"
+rsync -a --delete --exclude .git --exclude /app/target --exclude /app/.exact --exclude node_modules "$here/" mac:Developer/zoom/
+# ssh joins its arguments into one command line, so each is quoted for the Mac's shell.
+ssh mac bash -s -- "$(printf "%q " "$POSES" "$APPEARANCES" "${ops[@]}")" <<'MAC'
+set -euo pipefail
+poses=$1 appearances=$2
+shift 2
+. ~/Developer/zoom/scripts/mac-env
+# The Duo simulator runs iOS 27.1, which Xcode-beta carries.
+export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+id=$(xcrun simctl list devices -j | jq -r '[.devices[][] | select(.name == "zoom Duo")][0].udid // empty')
+if [ -z "$id" ]; then
+  runtime=$(xcrun simctl list runtimes -j | jq -r '[.runtimes[] | select(.name == "iOS 27.1")][0].identifier')
+  id=$(xcrun simctl create "zoom Duo" "iPhone Duo" "$runtime")
+fi
+xcrun simctl boot "$id" 2>/dev/null || true
+xcrun simctl bootstatus "$id" -b >/dev/null
+xcrun simctl status_bar "$id" override --time 9:41 --batteryLevel 100 --cellularBars 4 2>/dev/null || true
+hub=~/Developer/zoom-build/devicehub-sim
+mkdir -p ~/Developer/zoom-build
+[ "$hub" -nt ~/Developer/zoom/scripts/devicehub.c ] || {
+  xcrun -sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=27.0 -O2 -o "$hub" \
+    ~/Developer/zoom/scripts/devicehub.c -framework IOKit -framework CoreFoundation
+  codesign -f -s - "$hub" 2>/dev/null
+}
+hubdo() { xcrun simctl spawn "$id" "$hub" "$@" </dev/null; }
+out=~/Developer/zoom-build/shots
+rm -rf "$out" && mkdir -p "$out"
+cd ~/Developer/zoom/app
+hinge_at=
+for pose in $poses; do
+  case ${pose%-*} in cover) hinge=0 ;; open) hinge=180 ;; *) hinge=${pose%-*} ;; esac
+  case ${pose##*-} in up) orientation=portrait ;; side) orientation=landscape-right ;; esac
+  if [ "$hinge" != "$hinge_at" ]; then
+    hubdo hinge "$hinge" "${hinge_at:-$([ "$hinge" -gt 90 ] && echo 0 || echo 180)}"
+    sleep 3
+    hinge_at=$hinge
+  fi
+  hubdo orientation "$orientation"; sleep 1; hubdo orientation "$orientation"
+  for appearance in $appearances; do
+    xcrun simctl ui "$id" appearance "$appearance"
+    run=()
+    for op in "$@"; do
+      case $op in "screenshot "*.png*) set -- $op; run+=("screenshot $out/${2%.png}-$pose-$appearance.png ${*:3}") ;; *) run+=("$op") ;; esac
+    done
+    bun exact.mjs agent ios --sim "$id" --storage "$pose-$appearance" --scale 3 "${run[@]}" 2>&1 | tail -40
+  done
+done
+MAC
+rsync -a mac:Developer/zoom-build/shots/ "$shots/"
+ls "$shots"

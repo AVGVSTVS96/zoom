@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Runs on the server: bundles the messages (scripts/content.ts), builds zoom for the iPhone on the Mac,
+# signs it there with the team's development certificate and puts it on hangar, which installs it on
+# the phone. xtool here only makes the provisioning profile and signs ad hoc; hangar's scripts/resign
+# signs on the Mac, where the key is. Never let xtool revoke a certificate to make its own (stdin is
+# closed, so it can't ask). The build number is the commit count.
+#   scripts/ship [notes]
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+hangar=$HOME/Developer/hangar
+. "$hangar/config"
+bundle=com.shahidy.zoom
+number=$(git -C "$here" rev-list --count HEAD)
+notes=${1:-$(git -C "$here" log -1 --format=%s)}
+work=$HOME/.cache/zoom/ship
+# The Mac takes one build or simulator run at a time; hex Exact's scripts hold the same lock.
+mkdir -p ~/.local/share/hex-exact && exec 9>~/.local/share/hex-exact/mac.lock && flock 9
+
+ssh -o ConnectTimeout=15 -o BatchMode=yes mac true </dev/null || { echo "the Mac didn't answer" >&2; exit 1; }
+bun "$here/scripts/content.ts"
+rsync -a --delete --exclude .git --exclude /app/target --exclude /app/.exact --exclude node_modules "$here/" mac:Developer/zoom/
+echo "building zoom $number on the Mac"
+app=$(ssh mac bash -s <<'MAC'
+set -euo pipefail
+. ~/Developer/zoom/scripts/mac-env
+cd ~/Developer/zoom/app
+bun exact.mjs ios --device --release --unsigned --json 2>~/Developer/zoom-build.log | tail -1 | /opt/homebrew/bin/jq -r .path
+MAC
+)
+[ -n "$app" ] && [ "$app" != null ] || { ssh mac 'tail -30 ~/Developer/zoom-build.log' >&2; exit 1; }
+
+rm -rf "$work" && mkdir -p "$work"
+rsync -a "mac:$app/" "$work/zoom.app/"
+python3 - "$work/zoom.app/Info.plist" "$number" "$HANGAR_URL" "$bundle" <<'PY'
+import plistlib, sys
+path, number, url, bundle = sys.argv[1:]
+info = plistlib.load(open(path, "rb"))
+info["CFBundleVersion"] = number
+info["HangarURL"] = url
+# Only this build answers <bundle>-<number>: hangar opens it to know the install finished.
+info["CFBundleURLTypes"] = info.get("CFBundleURLTypes", []) + [{"CFBundleURLSchemes": [f"{bundle}-{number}"]}]
+plistlib.dump(info, open(path, "wb"), fmt=plistlib.FMT_BINARY)
+PY
+xtool sign "$work/zoom.app" </dev/null
+serial=$(python3 -c "
+import glob, os, plistlib, subprocess
+path = max(glob.glob(os.path.expanduser('~/.config/xtool/data/??????????')), key=os.path.getmtime)
+der = plistlib.load(open(path, 'rb'))['certificate']
+print(subprocess.run(['openssl', 'x509', '-inform', 'DER', '-noout', '-serial'], input=der, capture_output=True).stdout.decode().split('=')[1].strip())")
+ssh mac 'rm -rf Developer/zoom-phone && mkdir -p Developer/zoom-phone'
+rsync -a "$work/zoom.app" mac:Developer/zoom-phone/
+ssh mac sh -s "$serial" Developer/zoom-phone/zoom.app <"$hangar/scripts/resign"
+ssh mac 'cd Developer/zoom-phone && mkdir Payload && cp -R zoom.app Payload/ && ditto -c -k --norsrc --noextattr --keepParent Payload zoom.ipa'
+scp -q mac:Developer/zoom-phone/zoom.ipa "$work/zoom.ipa"
+"$hangar/bin/hangar" put "$work/zoom.ipa" --notes "$notes"
+echo "zoom $number is on $HANGAR_URL/"

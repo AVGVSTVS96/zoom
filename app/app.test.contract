@@ -1,0 +1,22 @@
+test "the map opens on its sections"
+  clock data
+  expect tree has "level-3"
+  expect state level == 3
+
+test "an exchange on the map opens it concise, and the control goes back"
+  clock data
+  tap "3-battery"
+  clock settle
+  expect state level == 2
+  expect state focus == "battery"
+  tap "zoom-3"
+  clock settle
+  expect state level == 3
+
+test "pinching out from the messages zooms to the concise level"
+  clock data
+  tap "zoom-1"
+  clock settle
+  tap "level-1" pinch 0.7
+  clock settle
+  expect state level == 2

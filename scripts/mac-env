@@ -1,0 +1,5 @@
+# Sourced on the Mac before an Exact or Xcode command: rustup's cargo ahead of Homebrew's, Xcode 27.3
+# (the iPhone Duo needs an app linked against iOS 27.1 or later) and the Mac's Exact checkout.
+export PATH=/opt/homebrew/Cellar/rustup/1.29.0_2/bin:/opt/homebrew/bin:$PATH
+export DEVELOPER_DIR=/Applications/Xcode-27.3-beta.app/Contents/Developer
+export EXACT=$HOME/Developer/exact
