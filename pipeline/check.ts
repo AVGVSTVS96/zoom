@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { claude } from "./llm";
 import { render } from "./rewrite";
 import type { Addition, Check, Loss, Message, Rewritten, Unit, Verbatim, Verdict } from "./types";
@@ -23,6 +22,8 @@ export function units(messages: Message[]): Unit[] {
         }
     }
     if (m.poll) pieces.push(`Poll options: ${m.poll.join(" / ")}`);
+    // A photo rides along with its set, so its "(photo)" placeholder is no sentence to carry.
+    if (m.image && pieces.length === 1 && pieces[0].trim() === "(photo)") pieces.pop();
     for (const text of pieces.map((p) => p.trim()).filter(Boolean))
       out.push({ id: `U${out.length + 1}`, messageId: m.id, text, verdict: "missing" });
   }
@@ -154,20 +155,18 @@ const severity: Record<Verdict, number> = { kept: 0, duplicate: 0, superseded: 0
 const conveyed = (v: Verdict) => severity[v] === 0;
 
 /** One judge run, with every quote and reference it gives checked in code. */
-async function judgeOnce(messages: Message[], base: Unit[], rewrite: Rewritten[], run: number, dataDir: string) {
+async function judgeOnce(messages: Message[], base: Unit[], rewrite: Rewritten[], run: number) {
   const text = rewrite.map((r) => `${r.author}: ${r.text}`).join("\n\n");
   const flat = normalize(text);
-  const photos = messages.filter((m) => m.image).map((m) => `Msg ${m.id}'s photo is ${join(dataDir, m.image!)}; read it.`);
   const prompt = [
     "# Originals",
     messages.map(render).join("\n\n"),
-    ...photos,
     "# Units",
     base.map((u) => `${u.id} (msg ${u.messageId}): ${u.text}`).join("\n"),
     "# Rewrite",
     text,
   ].join("\n\n");
-  const judged = await claude<Judged>(judge, prompt, schema, run, photos.length ? dataDir : undefined);
+  const judged = await claude<Judged>(judge, prompt, schema, run);
   const byId = new Map(judged.units.map((j) => [j.id, j]));
   const index = new Map(base.map((u, i) => [u.id, i]));
   const result: Unit[] = base.map((u) => {
@@ -209,9 +208,9 @@ async function judgeOnce(messages: Message[], base: Unit[], rewrite: Rewritten[]
  * Checks a rewrite against its originals: every unit accounted for by `runs` independent
  * judges (the worst verdict wins), plus every link, code span, number and photo in code.
  */
-export async function check(messages: Message[], rewrite: Rewritten[], runs: number[], dataDir: string): Promise<Check> {
+export async function check(messages: Message[], rewrite: Rewritten[], runs: number[]): Promise<Check> {
   const base = units(messages);
-  const judged = await Promise.all(runs.map((run) => judgeOnce(messages, base, rewrite, run, dataDir)));
+  const judged = await Promise.all(runs.map((run) => judgeOnce(messages, base, rewrite, run)));
   const merged = base.map((_, i) =>
     judged.map((j) => j.units[i]).reduce((a, b) => (severity[b.verdict] > severity[a.verdict] ? b : a)),
   );

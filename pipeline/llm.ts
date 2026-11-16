@@ -55,13 +55,9 @@ export async function muse<T>(turns: Turn[], schema: object): Promise<T> {
 export const claudeModel = "claude-opus-5-5";
 const emptyDir = join(homedir(), ".cache/claude-empty");
 
-/**
- * Claude through `claude -p` (his plan), returning JSON that matches `schema`.
- * `read` lets it open files in that folder, like a photo it has to see.
- */
-export async function claude<T>(system: string, prompt: string, schema: object, run = 0, read?: string): Promise<T> {
-  const tools = read ? ["--tools", "Read", "--add-dir", read] : ["--tools", ""];
-  const args = ["--model", claudeModel, "--effort", "high", ...tools, "--no-session-persistence"];
+/** Claude through `claude -p` (his plan), returning JSON that matches `schema`. */
+export async function claude<T>(system: string, prompt: string, schema: object, run = 0): Promise<T> {
+  const args = ["--model", claudeModel, "--effort", "high", "--tools", "", "--no-session-persistence"];
   return cached({ args, system, prompt, schema, run }, async () => {
     await mkdir(emptyDir, { recursive: true });
     for (let attempt = 1; ; attempt++) {

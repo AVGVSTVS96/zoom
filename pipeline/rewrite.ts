@@ -6,7 +6,7 @@ const system = `You rewrite a stretch of a Telegram chat between Bassim ("owner"
 
 The messages were sent one after another and never edited, so they run long: explanations that a later message overturns, drafts that get replaced, the same point made twice, questions answered further down, hedges and preambles. Write the same messages again as they'd read had each been edited once the conversation settled: every point said once, in its final form, in the fewest words that carry it. Where hex was wrong and corrected itself, give the right answer and say briefly what was wrong. This is still the conversation, from the same speakers in their own voices, with hex speaking to Bassim as "you"; not an overview of it. Most of the cutting is in hex's messages: merge hex's messages in a row into one, give each point once in its final form, and fold reasoning a later message overturns into a few words.
 
-It has to be lossless: everything a reader learns from the originals stays, every fact, name, number, date and time, link, ID, list item, step, question, request, decision, caveat and open question, and who said each, with a guess still a guess and a ruled-out option still ruled out. Greetings, acknowledgements, apologies, promises the set goes on to keep, and tone can go. Links, code, commands and anything meant to be copied (like a drafted text to send) stay exactly as written. Photos show beside your rewrite as sent. A quoted message a reply points to is context from outside the set, not one of its messages.
+It has to be lossless: everything a reader learns from the originals stays, every fact, name, number, date and time, link, ID, list item, step, question, request, decision, caveat and open question, and who said each, with a guess still a guess and a ruled-out option still ruled out. Greetings, acknowledgements, apologies, promises the set goes on to keep, and tone can go. Links, code, commands and anything meant to be copied (like a drafted text to send) stay exactly as written. Photos show beside your rewrite as sent, so they need no description. A quoted message a reply points to is context from outside the set, not one of its messages.
 
 Write Telegram markdown. Use a comma, colon or semicolon where an em dash might go.
 
@@ -85,7 +85,7 @@ export async function rewrite(
       { role: "assistant", content: JSON.stringify(draft) },
       {
         role: "user",
-        content: `A strict check against the originals found what this draft lost or changed:\n\n${previous.gaps.map((g) => `- ${g}`).join("\n")}\n\nWrite it again with all of it carried, as concise as it can be.`,
+        content: `A strict check against the originals found what this draft lost or changed:\n\n${previous.gaps.map((g) => `- ${g}`).join("\n")}\n\nChange only what it takes to carry these, and keep the rest of your draft as it is.`,
       },
     );
   }

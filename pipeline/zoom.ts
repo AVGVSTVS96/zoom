@@ -11,16 +11,16 @@ export type Result = { rewrite: Rewritten[]; check: Check; rounds: number };
  */
 export async function zoom(messages: Message[], dataDir: string, repairs = 3): Promise<Result> {
   let draft = await rewrite(messages, dataDir);
-  let best = { draft, check: await check(messages, draft, [0], dataDir) };
+  let best = { draft, check: await check(messages, draft, [0]) };
   let rounds = 1;
   while (!best.check.loss.lossless) {
     if (rounds > repairs) break;
     draft = await rewrite(messages, dataDir, { draft: best.draft, gaps: gaps(best.check) });
-    const next = await check(messages, draft, [0], dataDir);
+    const next = await check(messages, draft, [0]);
     rounds++;
     if (better(next, draft, best)) best = { draft, check: next };
   }
-  return { rewrite: best.draft, check: await check(messages, best.draft, [1, 2], dataDir), rounds };
+  return { rewrite: best.draft, check: await check(messages, best.draft, [1, 2]), rounds };
 }
 
 const length = (draft: Rewritten[]) => draft.reduce((n, r) => n + r.text.length, 0);
