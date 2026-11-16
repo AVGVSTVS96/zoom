@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Runs on hex's machine: pinches zoom on the Mac's "zoom Duo" simulator with two real fingers
+# (scripts/pinch.swift, through XCTest) while the simulator records its cover screen. The app must be
+# installed there (scripts/sim). Each argument is a pinch, "<scale>@<velocity>", a pause, "wait <s>", or a tap, "tap <testId>".
+# The video lands in $OUT (~/hex/scratch/zoom/pinch.mp4).
+#   scripts/pinch "0.4@-0.25" "wait 1" "2.6@4"
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+out=${OUT:-$HOME/hex/scratch/zoom/pinch.mp4}
+pinches=$(IFS=';'; echo "$*")
+locks=~/.local/share/hex-exact
+mkdir -p "$locks" && exec 8>"$locks/zoom-sim.lock" && flock 8
+rsync -a "$here/scripts/pinch.swift" mac:Developer/zoom-build/
+ssh mac bash -s -- "$(printf "%q" "$pinches")" <<'MAC'
+set -euo pipefail
+pinches=$1
+export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+jq=/opt/homebrew/bin/jq
+id=$(xcrun simctl list devices -j | $jq -r '[.devices[][] | select(.name == "zoom Duo")][0].udid')
+platform=$DEVELOPER_DIR/Platforms/iPhoneSimulator.platform/Developer
+dir=~/Developer/zoom-build/pinch
+app=$dir/ZoomPinch-Runner.app
+# Built once per source: Xcode's XCTRunner.app, the frameworks a UI-test runner embeds, the test bundle.
+key=$(cat ~/Developer/zoom-build/pinch.swift "$platform/Library/Xcode/Agents/XCTRunner.app/Info.plist" | shasum | cut -c1-12)
+if [ "$(cat "$dir/key" 2>/dev/null)" != "$key" ]; then
+  rm -rf "$dir" && mkdir -p "$dir"
+  cp -R "$platform/Library/Xcode/Agents/XCTRunner.app" "$app"
+  plutil -replace CFBundleExecutable -string XCTRunner "$app/Info.plist"
+  plutil -replace CFBundleIdentifier -string com.shahidy.zoompinch.xctrunner "$app/Info.plist"
+  plutil -replace CFBundleName -string ZoomPinch-Runner "$app/Info.plist"
+  mkdir -p "$app/Frameworks" "$app/PlugIns/ZoomPinch.xctest"
+  (cd "$platform/Library/Frameworks" && cp -R XCTest.framework XCUIAutomation.framework Testing.framework _Testing_Foundation.framework "$app/Frameworks/" 2>/dev/null || true)
+  (cd "$platform/Library/PrivateFrameworks" && cp -R XCT* XCUnit* "$app/Frameworks/")
+  (cd "$platform/usr/lib" && cp -R libXCTestSwiftSupport.dylib lib_TestingInterop.dylib "$app/Frameworks/" 2>/dev/null || true)
+  xcrun --sdk iphonesimulator swiftc -emit-library -O -module-name ZoomPinch -target arm64-apple-ios18.0-simulator \
+    -F "$platform/Library/Frameworks" -F "$platform/Library/PrivateFrameworks" -I "$platform/usr/lib" -L "$platform/usr/lib" \
+    -framework XCTest -framework XCUIAutomation -Xlinker -rpath -Xlinker @executable_path/Frameworks \
+    -module-cache-path "$dir/cache" -o "$app/PlugIns/ZoomPinch.xctest/ZoomPinch" ~/Developer/zoom-build/pinch.swift
+  plutil -create xml1 "$app/PlugIns/ZoomPinch.xctest/Info.plist"
+  for kv in CFBundleExecutable=ZoomPinch CFBundleIdentifier=com.shahidy.zoompinch CFBundlePackageType=BNDL CFBundleName=ZoomPinch CFBundleVersion=1; do
+    plutil -insert "${kv%%=*}" -string "${kv#*=}" "$app/PlugIns/ZoomPinch.xctest/Info.plist"
+  done
+  plutil -insert CFBundleSupportedPlatforms -json '["iPhoneSimulator"]' "$app/PlugIns/ZoomPinch.xctest/Info.plist"
+  codesign --force --sign - "$app/PlugIns/ZoomPinch.xctest"
+  for f in "$app"/Frameworks/*; do codesign --force --sign - "$f"; done
+  codesign --force --sign - --entitlements "$app/RunnerEntitlements.plist" "$app"
+  rm -rf "$dir/cache"
+  echo "$key" >"$dir/key"
+fi
+xcrun simctl install "$id" "$app"
+run=$dir/run.xctestrun
+cat >"$run" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>ZoomPinch</key><dict>
+<key>IsUITestBundle</key><true/>
+<key>TestHostPath</key><string>$app</string>
+<key>TestBundlePath</key><string>__TESTHOST__/PlugIns/ZoomPinch.xctest</string>
+<key>UITargetAppPath</key><string>$app</string>
+<key>TestingEnvironmentVariables</key><dict><key>ZOOM_PINCHES</key><string>$pinches</string></dict>
+</dict>
+<key>__xctestrun_metadata__</key><dict><key>FormatVersion</key><integer>1</integer></dict>
+</dict></plist>
+PLIST
+xcrun simctl launch "$id" com.shahidy.zoom >/dev/null
+rm -f /tmp/zoom-pinch.mp4
+xcrun simctl io "$id" recordVideo --codec=h264 --display=1 --force /tmp/zoom-pinch.mp4 >/tmp/zoom-rec.log 2>&1 &
+rec=$!
+sleep 2
+xcodebuild test-without-building -xctestrun "$run" -derivedDataPath "$dir/derived" -destination "id=$id" \
+  -only-testing:ZoomPinch/ZoomPinch/testPinches >"$dir/test.log" 2>&1 || { tail -30 "$dir/test.log" >&2; kill -INT $rec; exit 1; }
+sleep 1
+kill -INT $rec; wait $rec || true
+grep -E "^pinch|passed|failed" "$dir/test.log" | head -20
+MAC
+scp -q mac:/tmp/zoom-pinch.mp4 "$out"
+echo "$out"

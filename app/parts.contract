@@ -31,70 +31,25 @@ shape Content
   anchors: string[]
   sections: Section[]
 
-// One level of the chat. Map is titles only, Short is Muse Wonder's rewrite, Full the originals. Every
-// place a zoom can hold has an id, `<level>-<key>`, and reports when it comes into view; `current` is
-// the set a map beside the chat marks as the one being read.
-component Level
-  props
-    n: number
-    content: Content
-    current: string
-    seen: action
-    open: action
-  view
-    column width="100%" max-width="40rem" padding=(n == 3 ? "8px 16px 0 22px" : "8px 20px 0 22px") box-sizing="border-box" gap=0
-      if n == 3
-        text content.totals font="-exact-footnote" color="-exact-secondary-label" padding="8px 0 0" testId="totals"
-      for s in content.sections key=s.id
-        column id=`${n}-s-${s.id}` intersect=seen(`${n}-s-${s.id}`) intersect-margin="-40px 0px 0px 0px"
-          row align-items="baseline" gap=8 padding=(n == 3 ? "22px 0 4px" : "34px 0 2px")
-            text s.title font="-exact-footnote" font-weight=600 color="-exact-secondary-label" text-transform="uppercase" letter-spacing=0.6
-              flex=1 min-width=0 role="heading" aria-level=2
-            text s.time font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
-          for t in s.sets key=t.id
-            column id=`${n}-${t.id}~`
-              Title(set=t, n=n, current=(t.id == current), seen=seen, open=open)
-              if n == 2
-                Body(n=n, messages=t.short, full=false, original=t.original, seen=seen, open=open)
-              else if n == 1
-                Body(n=n, messages=t.full, full=true, original=false, seen=seen, open=open)
-
-// The handle: a set's title, the same words at the same left edge at every level. On the map it is the
-// whole row, with how many messages it stands for; at Full it carries how much of it the rewrite kept.
-component Title
-  props
-    set: Set
-    n: number
-    current: bool
-    seen: action
-    open: action
-  view
-    column id=`${n}-${set.id}` testId=`${n}-${set.id}` intersect=seen(`${n}-${set.id}`) intersect-margin="-40px 0px 0px 0px"
-      press=open(set.id) gap=2 padding=(n == 3 ? "9px 10px" : "18px 0 8px") margin=(n == 3 ? "0 -10px" : "0")
-      border-radius=10 background-color=(current ? "-exact-secondary-background" : "transparent")
-      row align-items="baseline" gap=8
-        text set.title font=(n == 3 ? "-exact-body" : "-exact-headline") color="-exact-label" flex=1 min-width=0
-        if n == 3
-          text `${set.count}` font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
-      if n == 1 and set.kept != ""
-        text set.kept font="-exact-caption1" color=(set.kept == "lossless" ? "-exact-tertiary-label" : "-exact-system-orange")
-
-// A set's messages: yours on the right in a bubble, hex's full width as text. A tap on a message at
-// Short opens the originals it carries.
+// A set's messages at Short or Full: yours on the right in a bubble, hex's full width as text. Full
+// leads with how much of the set the rewrite kept. A tap on a message at Short opens the originals it
+// carries.
 component Body
   props
     n: number
     messages: Msg[]
     full: bool
+    kept: string
     original: bool
-    seen: action
     open: action
   view
     column gap=10 padding="0 0 6px"
+      if kept != ""
+        text kept font="-exact-caption1" color=(kept == "lossless" ? "-exact-tertiary-label" : "-exact-system-orange")
       if original
         text "original" font="-exact-caption1" color="-exact-tertiary-label" text-transform="uppercase" letter-spacing=0.6
       for m in messages key=m.key
-        column id=`${n}-${m.key}` testId=`${n}-${m.key}` intersect=seen(`${n}-${m.key}`) intersect-margin="-40px 0px 0px 0px" press=open(m.key)
+        column id=`${n}-${m.key}` testId=`${n}-${m.key}` press=open(`${n}-${m.key}`)
           align-items=(m.mine ? "flex-end" : "stretch") gap=4
           if full
             text (m.note != "" ? `${m.mine ? "you" : "hex"}  ${m.time} · ${m.note}` : `${m.mine ? "you" : "hex"}  ${m.time}`) font="-exact-caption1" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
@@ -113,3 +68,23 @@ component Body
               row gap=8 align-items="center"
                 image "symbol:circle" width=15 height=15 color="-exact-tertiary-label"
                 text o font="-exact-subheadline" color="-exact-label" flex=1 min-width=0
+
+// The map beside the chat on a wide screen: every section and set title, the set being read marked.
+component Map
+  props
+    content: Content
+    current: string
+    open: action
+  view
+    column width="100%" padding="8px 16px 0 22px" box-sizing="border-box"
+      text content.totals font="-exact-footnote" color="-exact-secondary-label" padding="8px 0 0" testId="side-totals"
+      for s in content.sections key=s.id
+        row align-items="baseline" gap=8 padding="22px 0 4px"
+          text s.title font="-exact-footnote" font-weight=600 color="-exact-secondary-label" text-transform="uppercase" letter-spacing=0.6
+            flex=1 min-width=0 role="heading" aria-level=2
+          text s.time font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
+        for t in s.sets key=t.id
+          row testId=`side-${t.id}` press=open(t.id) align-items="baseline" gap=8 padding="9px 10px" margin="0 -10px" border-radius=10
+            background-color=(t.id == current ? "-exact-secondary-background" : "transparent")
+            text t.title font="-exact-headline" color="-exact-label" flex=1 min-width=0
+            text `${t.count}` font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"

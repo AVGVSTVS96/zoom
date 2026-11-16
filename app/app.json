@@ -31,5 +31,8 @@
       "sizes": "1024x1024",
       "type": "image/png"
     }
+  ],
+  "modules": [
+    "zoom-pinch"
   ]
 }

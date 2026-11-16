@@ -1,26 +1,29 @@
 test "it opens at Short"
   clock data
   expect state level == 2
-  expect tree has "2-battery"
+  expect tree has "t-battery"
+  expect tree has "2-msg-10920"
+
+test "the control moves the chat to each stop"
+  clock data
+  tap "zoom-3"
+  clock +800
+  expect state level == 3
+  tap "zoom-1"
+  clock +800
+  expect state level == 1
+  tap "zoom-2"
+  clock +800
+  expect state level == 2
 
 test "a row on the map opens its set at Short, a rewritten message its originals"
   clock data
   tap "zoom-3"
-  clock settle
+  clock +800
   expect state level == 3
-  tap "3-battery"
-  clock settle
+  tap "t-battery"
+  clock +800
   expect state level == 2
   tap "2-msg-10920"
-  clock settle
+  clock +800
   expect state level == 1
-
-test "pinching together goes a stop out, apart a stop in"
-  clock data
-  tap "page-2" pinch 0.7
-  clock settle
-  expect state level == 3
-  tap "page-3" pinch 1.4
-  clock settle
-  expect state level == 2
-

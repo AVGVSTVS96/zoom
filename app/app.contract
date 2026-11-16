@@ -1,8 +1,8 @@
-// zoom: one chat at three levels, stops on one scale. Pinch together for less, apart for more:
-// the map of sections, Muse Wonder's short version of each exchange, and every message as sent.
-// Every level is the chat in chat order, so a zoom keeps the message under your fingers where it was
-// (docs/design.md).
-use Content, Level from "./parts.contract"
+// zoom: one chat on one scale. Every message as sent is 1 (Full), Muse Wonder's short version of each
+// exchange 2 (Short), the map of sections 3 (Map). Two fingers move the chat along the scale anywhere on
+// it: bodies grow or shrink and their contents cross-dissolve with the fingers, and letting go springs
+// it to a stop. The place under the fingers stays under them (docs/design.md, Zooming).
+use Content, Set, Body, Map from "./parts.contract"
 
 routes nav
   home "/"
@@ -11,42 +11,65 @@ shape Viewport
   width: number
   prefersReducedMotion: bool
 
-fn stops(scale: number, speed: number): number = scale < 0.49 ? 2 : scale < 0.79 or (scale < 0.95 and speed < -1) ? 1 : scale > 2.02 ? -2 : scale > 1.26 or (scale > 1.05 and speed > 1) ? -1 : 0
+fn nth(xs: number[], i: number): number = match xs.at(i) { case some(x) => x, case none => 0 }
+
+// How much of each level shows at `z`: Map's share past Short, Full's short of it, and Short's the rest.
+fn mapOf(z: number): number = min(1, max(0, z - 2))
+fn fullOf(z: number): number = min(1, max(0, 2 - z))
+fn shortOf(z: number): number = 1 - mapOf(z) - fullOf(z)
+// How strongly a level's contents show at `weight`: the outgoing one is gone before the incoming one is
+// half there, so two texts never sit over each other at half strength.
+fn shows(weight: number): number = min(1, max(0, (weight - 0.4) / 0.6))
+
+// Where the anchor is in the chat at `z`, less what never moves. Above it, each set's body is its
+// Short and Full heights shared by the levels (`short`, `full`, the anchor's own offset into its set
+// included), each set title's padding gives 8 toward the map, each section heading's 10, and the
+// totals line opens.
+fn place(z: number, totals: number, sections: number, sets: number, short: number, full: number): number = (totals - 10 * sections - 8 * (sets + 1)) * mapOf(z) + short * shortOf(z) + full * fullOf(z)
 
 // The place at level `b` for `key` at level `a`: the same key, unless content.anchors names another.
 fn hop(anchors: string[], a: number, b: number, key: string): string = match anchors.filter(x => x.startsWith(`${a}${b}:${key}=`)).at(0) { case some(x) => x.slice(key.length + 4), case none => key }
 
-// The first place on screen at a level, in reading order.
-fn firstIn(order: string[], visible: string[], level: number, otherwise: string): string = match order.filter(k => visible.includes(`${level}-${k}`)).at(0) { case some(k) => k, case none => otherwise }
+fn below(a: Geometry, b: Geometry): number = a.unavailable or b.unavailable ? 0 : a.y - b.y
 
 component App
   resource content = loadContent() as shape Content
   resource viewport = exactViewport() as shape Viewport
-  // 1 Full, 2 Short, 3 Map, and the place you were on (a section, set or message key): both outlast a quit.
+  // The stop the chat rests on and the place it was left on (a title's or message's id): both outlast a quit.
   state level = 2 persist
   state focus = "" persist
   state restored = false
-  // What each level shows now, how far each has scrolled, and where a zoom sends it.
-  state visible = []
-  state top1 = 0
-  state top2 = 0
-  state top3 = 0
-  state jump1 = 0
-  state jump2 = 0
-  state jump3 = 0
-  state lensScale = 1
-  state lensX = 0
-  state lensY = 0
+  // Where the chat is on the scale while it moves; at rest it is `level`.
+  state z = 2
+  state moving = false
+  // A move the app asks the pinch for, and where on the chat its place is.
+  state ask = ""
+  state asks = 0
+  state aimX = 0
+  state aimY = 0
+  // Each set's Short and Full as laid out, and the totals line's height.
+  state shorts: number[] = []
+  state fulls: number[] = []
+  state totals = 0
+  // The scroll as the reader left it, the one the chat is moved to, and the move under way: the
+  // fingers' height as it started and what is above the anchor.
+  state scrolled = 0
+  state scrollY = 0
+  state y0 = 0
+  state above: number[] = [0, 0, 0, 0]
+  // The anchor's offset into its set's body at Short and at Full, and the fingers' height above it.
+  state inset: number[] = [0, 0, 0]
+  state anchor = ""
+  state anchorShort = ""
+  state anchorFull = ""
   derive still = viewport.prefersReducedMotion
-  // Wide enough for a 300pt map beside a 560pt chat: the map stays on the left, and the control has two stops.
+  // Wide enough for a 300pt map beside a 560pt chat: the map stays on the left, and the scale stops at Short.
   derive side = viewport.width >= 860
-  derive shown = side and level == 3 ? 2 : level
-  derive levels = side ? [1, 2] : [1, 2, 3]
+  derive highest = side ? 2 : 3
+  derive at = moving ? z : min(level, highest)
   derive sets = content.sections.map(s => s.sets.map(t => t.id)).flat()
   derive newest = match sets.at(sets.length - 1) { case some(t) => t, case none => "" }
-  derive order = content.sections.map(s => [`s-${s.id}`].concat(s.sets.map(t => [t.id].concat(t.short.map(m => m.key)).concat(t.full.map(m => m.key))).flat())).flat()
-  derive first = firstIn(order, visible, shown, focus)
-  derive current = side ? hop(content.anchors, shown, 3, first) : ""
+  derive reading = focus.startsWith("t-") ? focus.slice(2) : hop(content.anchors, (focus.startsWith("1-") ? 1 : 2), 3, focus.slice(2))
 
   task restore when current(content) and not restored
     after(1, land)
@@ -54,103 +77,177 @@ component App
   // The app opens at Short on the newest set, at the bottom, and after that where it was left.
   action land
     restored = true
-    if focus == ""
-      scrollIntoView(`${shown}-${newest}`, block="start")
+    let stop = min(level, highest)
+    level = stop
+    if focus.startsWith("t-") or focus.startsWith(`${stop}-`)
+      scrollIntoView(focus, block="start")
     else
-      scrollIntoView(`${shown}-${focus}`, block="start")
+      scrollIntoView(`t-${newest}`, block="start")
 
-  action seen(key: string, e: IntersectionObserverEntry)
-    let now = e.isIntersecting ? (visible.includes(key) ? visible : visible.concat([key])) : visible.filter(k => k != key)
-    visible = now
-    if restored
-      focus = firstIn(order, now, shown, focus)
+  action moved(x: number, y: number)
+    scrolled = y
+    if restored and not moving
+      remember()
 
-  action moved(n: number, x: number, y: number)
-    if n == 1
-      top1 = y
+  // The place at the top of the chat, at the level it rests on.
+  action remember
+    let chat = frame("chat")
+    let hit = elementsFromPoint(chat.x + chat.width / 2, chat.y + 48).filter(i => i.startsWith("t-") or i.startsWith(`${level}-`))
+    focus = match hit.at(0) { case some(i) => i, case none => focus }
+
+  action sized(id: string, n: number, w: number, h: number)
+    let i = sets.indexOf(id)
+    if id == "totals"
+      totals = h
     else if n == 2
-      top2 = y
+      shorts = range(sets.length).map(j => j == i ? h : nth(shorts, j))
     else
-      top3 = y
+      fulls = range(sets.length).map(j => j == i ? h : nth(fulls, j))
 
-  // The next level opens with the anchor's place where the anchor is now. `scale` is the page's while
-  // a pinch holds it, so its distances are the unscaled layout's.
-  action zoomAt(next: number, anchor: string, scale: number)
-    if next >= 1 and next <= (side ? 2 : 3) and next != shown
-      let to = hop(content.anchors, shown, next, anchor)
-      let from = frame(`${shown}-${anchor}`)
-      let dest = frame(`${next}-${to}`)
-      if not from.unavailable and not dest.unavailable
-        let delta = (dest.y - from.y) / scale
-        if next == 1
-          jump1 = max(0, top1 + delta) == jump1 ? jump1 + 0.5 : max(0, top1 + delta)
-        else if next == 2
-          jump2 = max(0, top2 + delta) == jump2 ? jump2 + 0.5 : max(0, top2 + delta)
-        else
-          jump3 = max(0, top3 + delta) == jump3 ? jump3 + 0.5 : max(0, top3 + delta)
-      focus = to
-      level = next
-      haptic("selection")
+  // The pinch's word: "b z x y" as a move starts, "m z y" each frame, "e z" at its stop.
+  action pinch(said: string)
+    let w = said.split(" ")
+    let n = w.map(x => match parseNumber(x) { case some(k) => k, case none => -1 })
+    if said.startsWith("b ")
+      begin(nth(n, 1), nth(n, 2), nth(n, 3))
+    else if said.startsWith("m ")
+      follow(nth(n, 1), nth(n, 2))
+    else if said.startsWith("e ")
+      rest(nth(n, 1))
 
-  action zoomTo(next: number)
-    zoomAt(next, first, 1)
+  // The anchor is the message, rewritten message or title under the fingers (or where the app aimed):
+  // its offset into its set at Short and at Full, and how many sets and sections are above it.
+  action begin(now: number, x: number, y: number)
+    let chat = frame("chat")
+    let fx = x < 0 ? aimX : x
+    let fy = y < 0 ? aimY : y
+    let hits = elementsFromPoint(chat.x + fx, chat.y + fy).filter(i => i.startsWith("t-") or i.startsWith("1-") or i.startsWith("2-"))
+    let hit = match hits.at(0) { case some(i) => i, case none => (focus == "" ? `t-${newest}` : focus) }
+    let key = hit.slice(2)
+    let kind = hit.startsWith("1-") ? 1 : (hit.startsWith("2-") ? 2 : 3)
+    let set = kind == 3 ? key : hop(content.anchors, kind, 3, key)
+    let short = kind == 2 ? key : hop(content.anchors, 1, 2, key)
+    let full = kind == 1 ? key : hop(content.anchors, 2, 1, key)
+    let a = max(0, sets.indexOf(set))
+    let sections = content.sections.filter(s => match s.sets.at(0) { case some(t) => sets.indexOf(t.id) <= a, case none => false }).length
+    let sIn = kind == 3 ? 0 : below(frame(`2-${short}`), frame(`c2-${set}`))
+    let fIn = kind == 3 ? 0 : below(frame(`1-${full}`), frame(`c1-${set}`))
+    above = [sections, a, sum(shorts.slice(0, a)) + sIn, sum(fulls.slice(0, a)) + fIn]
+    let t = frame(`t-${set}`)
+    inset = [sIn, fIn, fy - (t.y + t.height - chat.y + sIn * shortOf(now) + fIn * fullOf(now))]
+    anchor = set
+    anchorShort = kind == 3 ? "" : short
+    anchorFull = kind == 3 ? "" : full
+    y0 = fy
+    z = now
+    moving = true
+    scrollY = scrolled + 0.001
+
+  // The scroll that keeps the anchor under the fingers: what the layout above it will add this frame,
+  // plus however far off the anchor was laid out last frame, so any error in the first is gone a frame later.
+  action follow(now: number, y: number)
+    let was = z
+    z = now
+    let fy = y < 0 ? y0 : y
+    let t = frame(`t-${anchor}`)
+    let off = t.y + t.height - frame("chat").y + nth(inset, 0) * shortOf(was) + nth(inset, 1) * fullOf(was) - (fy - nth(inset, 2))
+    let grows = place(now, totals, nth(above, 0), nth(above, 1), nth(above, 2), nth(above, 3)) - place(was, totals, nth(above, 0), nth(above, 1), nth(above, 2), nth(above, 3))
+    scrollY = max(0, scrollY + off + grows)
+
+  action rest(stop: number)
+    level = stop
+    z = stop
+    moving = false
+    focus = stop == 3 or anchorShort == "" ? `t-${anchor}` : (stop == 2 ? `2-${anchorShort}` : `1-${anchorFull}`)
+
+  // A move the app makes, as a pinch would, about a place on the chat.
+  action go(stop: number, x: number, y: number)
+    if stop >= 1 and stop <= highest and stop != at
+      aimX = x
+      aimY = y
+      let n = asks + 1
+      asks = n
+      ask = `${stop}#${n}`
+
+  action zoomTo(stop: number)
+    go(stop, frame("chat").width / 2, 48)
 
   // A tap goes one level in: a row on the map opens its set, a rewritten message the originals it carries.
-  action open(key: string)
-    if shown > 1
-      zoomAt(shown - 1, key, 1)
+  action open(id: string)
+    let chat = frame("chat")
+    let f = frame(id)
+    if not f.unavailable
+      go(min(level, highest) - 1, f.x - chat.x + 12, f.y - chat.y + min(f.height / 2, 16))
 
   // A tap on the map beside the chat brings that set to the top.
   action show(set: string)
-    scrollIntoView(`${shown}-${set}`, block="start")
+    scrollIntoView(`t-${set}`, block="start")
     haptic("selection")
-
-  action lensGeometry(bw: number, bh: number, pw: number, ph: number)
-    lensX = 0
-
-  // The pinch scales the page under the fingers; letting go springs it back and takes each stop
-  // passed: one per 1.6× of scale, taken past halfway, or the next one on a fast pinch. The place
-  // under the pinch's midpoint is the anchor; the midpoint is where the page's scale held still.
-  action released(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
-    lensScale = 1
-    lensX = 0
-    lensY = 0
-    let step = stops(scale, vscale)
-    if step != 0
-      let clip = frame("clip")
-      let fx = clip.x + clip.width / 2 + x / (1 - scale)
-      let fy = clip.y + clip.height / 2 + y / (1 - scale)
-      let hit = elementsFromPoint(min(max(fx, clip.x + 1), clip.x + clip.width - 1), min(max(fy, clip.y + 1), clip.y + clip.height - 1)).filter(i => i.startsWith(`${shown}-`))
-      let anchor = match hit.at(0) { case some(i) => (i.endsWith("~") ? i.slice(2, i.length - 1) : i.slice(2)), case none => first }
-      zoomAt(min(side ? 2 : 3, max(1, shown + step)), anchor, scale)
 
   view
     main testId="root" navigationKey=`${top(nav).id}` width="100%" height="100%" accent-color="-exact-system-indigo"
       for e in stack(nav) key=e.id
-        row navigationKey=`${e.id}` navigationScroll=`level-${shown}` position="absolute" inset=0 -exact-safe-area="bottom"
+        row navigationKey=`${e.id}` navigationScroll="chat" position="absolute" inset=0 -exact-safe-area="bottom"
           if side
             scroll id="side" width="18.75rem" flex-shrink=0 testId="side"
               column padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 24px)"
-                Level(n=3, content=content, current=current, seen=seen, open=show)
+                Map(content=content, current=reading, open=show)
             box width=0.5 flex-shrink=0 background-color="-exact-separator"
           column flex=1 min-width=0 position="relative" display="flex" flex-direction="column"
-            column id="clip" flex=1 min-height=0 overflow="hidden" position="relative" padding=0 border-width=0
-              column id="lens" width="100%" height="100%" box-sizing="border-box" position="relative" padding=0 margin=0 border-width=0
-                scale=lensScale translate=`${lensX}px ${lensY}px` transition=(still ? "none" : "scale -exact-spring(260, 26, 1), translate -exact-spring(260, 26, 1)")
-                for n in levels key=n
-                  scroll id=`level-${n}` position="absolute" inset=0 inert=(shown != n) aria-hidden=(shown != n)
-                    scrollTop=(n == 1 ? jump1 : n == 2 ? jump2 : jump3) scroll=moved(n)
-                    opacity=(shown == n ? 1 : 0) transition=(still ? "none" : "opacity 240ms ease") testId=`level-${n}`
-                    column testId=`page-${n}` transformDragFor=(shown == n ? "lens" : "") touch-action="pan-y" transformgeometry=lensGeometry transformrelease=released
-                      align-items="center" min-height="100%" padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 96px)" box-sizing="border-box"
-                      Level(n=n, content=content, current="", seen=seen, open=open)
+            scroll id="chat" testId="chat" flex=1 min-height=0 scrollTop=scrollY scroll=moved
+              column width="100%" align-items="center" position="relative" padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 96px)" box-sizing="border-box"
+                zoom-pinch level=`${level}` stops=`${highest}` ask=ask still=(still ? "true" : "false") change=pinch
+                  position="absolute" left=0 top=0 width=1 height=1 pointer-events="none" aria-hidden=true
+                column width="100%" max-width="40rem" padding="8px 20px 0 22px" box-sizing="border-box"
+                  column overflow="hidden" height=(moving ? `${totals * mapOf(at)}px` : (at == 3 ? "auto" : "0px")) opacity=shows(mapOf(at))
+                    text content.totals font="-exact-footnote" color="-exact-secondary-label" padding="8px 0 0" testId="totals" resize=sized("totals", 0)
+                  for s in content.sections key=s.id
+                    column id=`s-${s.id}`
+                      row align-items="baseline" gap=8 padding=`${34 - 12 * mapOf(at)}px 0 ${2 + 2 * mapOf(at)}px`
+                        text s.title font="-exact-footnote" font-weight=600 color="-exact-secondary-label" text-transform="uppercase" letter-spacing=0.6
+                          flex=1 min-width=0 role="heading" aria-level=2
+                        text s.time font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
+                      for t in s.sets key=t.id
+                        Exchange(set=t, z=at, moving=moving, still=still, short=nth(shorts, sets.indexOf(t.id)), full=nth(fulls, sets.indexOf(t.id)), sized=sized, open=open)
+            // The control: Map, Short, Full. Its thumb follows the chat along the scale, fingers and all.
             row position="absolute" left=0 right=0 bottom="calc(var(--exact-safe-area-inset-bottom) + 6px)" justify-content="center" pointer-events="none"
               row backgroundMaterial="glass" border-radius=24 padding=4 pointer-events="auto" width=(side ? "12rem" : "17rem") max-width="calc(100% - 48px)"
-                row role="radiogroup" aria-label="Zoom" flex=1
+                row role="radiogroup" aria-label="Zoom" flex=1 position="relative"
+                  box position="absolute" top=0 bottom=0 left=`${(highest - at) * 100 / highest}%` width=`${100 / highest}%` border-radius=20 background-color="-exact-tertiary-fill" pointer-events="none"
                   if not side
-                    button role="radio" aria-checked=(shown == 3) press=zoomTo(3) testId="zoom-3" flex=1
+                    button role="radio" aria-checked=(at == 3) press=zoomTo(3) testId="zoom-3" flex=1
                       text "Map"
-                  button role="radio" aria-checked=(shown == 2) press=zoomTo(2) testId="zoom-2" flex=1
+                  button role="radio" aria-checked=(at == 2) press=zoomTo(2) testId="zoom-2" flex=1
                     text "Short"
-                  button role="radio" aria-checked=(shown == 1) press=zoomTo(1) testId="zoom-1" flex=1
+                  button role="radio" aria-checked=(at == 1) press=zoomTo(1) testId="zoom-1" flex=1
                     text "Full"
+
+// One exchange at `z`: its title, and a body that holds Short and Full over each other, the level's
+// share of each showing. At rest the shown one is laid out in place; moving, the body's height is the
+// levels' heights shared as they show.
+component Exchange
+  props
+    set: Set
+    z: number
+    moving: bool
+    still: bool
+    short: number
+    full: number
+    sized: action
+    open: action
+  view
+    column
+      column id=`t-${set.id}` testId=`t-${set.id}` press=open(`t-${set.id}`) gap=2
+        padding=`${18 - 9 * mapOf(z)}px 10px ${8 + mapOf(z)}px` margin="0 -10px" border-radius=10
+        row align-items="baseline" gap=8
+          text set.title font="-exact-headline" color="-exact-label" flex=1 min-width=0
+          text `${set.count}` font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums" opacity=shows(mapOf(z))
+      column position="relative" overflow="hidden" height=(moving ? `${short * shortOf(z) + full * fullOf(z)}px` : "auto")
+        column id=`c2-${set.id}` position=(not moving and z == 2 ? "relative" : "absolute") top=0 left=0 right=0
+          opacity=shows(shortOf(z)) inert=(shortOf(z) < 0.5) aria-hidden=(shortOf(z) < 0.5) resize=sized(set.id, 2)
+          transition=(still ? "opacity 200ms ease" : "none")
+          Body(n=2, messages=set.short, full=false, kept="", original=set.original, open=open)
+        column id=`c1-${set.id}` position=(not moving and z == 1 ? "relative" : "absolute") top=0 left=0 right=0
+          opacity=shows(fullOf(z)) inert=(fullOf(z) < 0.5) aria-hidden=(fullOf(z) < 0.5) resize=sized(set.id, 1)
+          transition=(still ? "opacity 200ms ease" : "none")
+          Body(n=1, messages=set.full, full=true, kept=set.kept, original=false, open=open)

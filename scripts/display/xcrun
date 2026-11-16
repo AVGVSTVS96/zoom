@@ -1,0 +1,8 @@
+#!/bin/bash
+# Put ahead of the real xcrun by scripts/sim: Exact reads the simulator's display with
+# `simctl io <sim> screenshot` and no --display, which the iPhone Duo, with a screen on each side,
+# refuses, so every picture fell back to the app's own drawing. This names the screen the pose is on.
+if [ "$1 $2 $4" = "simctl io screenshot" ] && [ -n "${SIM_DISPLAY:-}" ]; then
+  set -- "$1" "$2" "$3" "$4" "--display=$SIM_DISPLAY" "${@:5}"
+fi
+exec /usr/bin/xcrun "$@"
