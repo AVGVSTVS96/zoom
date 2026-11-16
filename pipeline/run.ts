@@ -2,11 +2,12 @@
 //   bun pipeline/run.ts                 every set
 //   bun pipeline/run.ts --sets a,b      only these sets, merged into the existing zoom.json
 //   bun pipeline/run.ts --stdin         messages (Message[] JSON) in, { rewrite, check } out
+//   bun pipeline/run.ts --rescore       fresh judges re-check the rewrites in zoom.json; no Muse Wonder calls
 // Needs OPENROUTER_API_KEY. Muse Wonder and judge answers are cached in data/cache.
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { loss } from "./check";
+import { check, loss } from "./check";
 import { claudeModel, costUsd, museModel, pool } from "./llm";
 import { report } from "./report";
 import { source } from "./source";
@@ -14,7 +15,7 @@ import type { Message, RewriteSet, Zoom } from "./types";
 import { zoom } from "./zoom";
 
 const dataDir = join(import.meta.dir, "../data");
-const { values } = parseArgs({ options: { sets: { type: "string" }, stdin: { type: "boolean" } } });
+const { values } = parseArgs({ options: { sets: { type: "string" }, stdin: { type: "boolean" }, rescore: { type: "boolean" } } });
 
 if (values.stdin) {
   const messages: Message[] = JSON.parse(await Bun.stdin.text());
@@ -29,14 +30,16 @@ const byId = new Map(thread.messages.map((m) => [m.id, m]));
 const all = structure.sections.flatMap((s) => s.sets);
 const only = values.sets?.split(",");
 const out = join(dataDir, "zoom.json");
-const previous: Zoom | undefined = only && (await Bun.file(out).exists()) ? await Bun.file(out).json() : undefined;
+const previous: Zoom | undefined = (only || values.rescore) && (await Bun.file(out).exists()) ? await Bun.file(out).json() : undefined;
+if (values.rescore && !previous) throw new Error("--rescore needs data/zoom.json");
 
 const done = await pool(
   all.filter((s) => !only || only.includes(s.id)),
   4,
   async (set): Promise<RewriteSet> => {
     const messages = set.messageIds.map((id) => byId.get(id)!);
-    const result = await zoom(messages, dataDir);
+    const kept = values.rescore && previous!.sets.find((p) => p.id === set.id);
+    const result = kept ? { rewrite: kept.rewrite, check: await check(messages, kept.rewrite, [1, 2]), rounds: 0 } : await zoom(messages, dataDir);
     const before = messages.reduce((n, m) => n + m.text.length, 0);
     const after = result.rewrite.reduce((n, r) => n + r.text.length, 0);
     const l = result.check.loss;

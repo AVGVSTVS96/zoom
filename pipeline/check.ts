@@ -113,6 +113,8 @@ The originals are split into numbered units. Account for every unit:
 
 Who said what holds: Bassim's words stay his and hex's stay hex's; a guess stays a guess, what was checked stays checked, a question to him stays a question, and an option he ruled out stays ruled out. Anything else is changed.
 
+So is a shift in what words point to or cover, however small: "there" made "here", a "their" or "it" left pointing at nothing or at someone else, one shared thing made one each ("one path for every project" made "per project"), "some" made "all", a name or spelling changed. And so is a shift in mood: a statement made a question, an instruction, or a "would"; a request made a statement; a time made vaguer or sharper ("in a minute" made "within a minute"). Read each kept unit's quote against the original word by word for these before calling it kept.
+
 Be strict about information: a dropped name, number, link, list item, reason or condition, or a change in how sure something is, makes a unit partial. Wording isn't information: rewording, merging, reordering, and cutting filler or emphasis that doesn't change what the reader knows or would do are fine. So is leaving out formatting, emoji and message metadata (times, ids, reply markers); adding metadata as text is an addition.
 
 Then list additions: anything the rewrite states that the originals don't support, quoted exactly.`;
@@ -156,7 +158,8 @@ const conveyed = (v: Verdict) => severity[v] === 0;
 
 /** One judge run, with every quote and reference it gives checked in code. */
 async function judgeOnce(messages: Message[], base: Unit[], rewrite: Rewritten[], run: number) {
-  const text = rewrite.map((r) => `${r.author}: ${r.text}`).join("\n\n");
+  const label = (r: Rewritten) => `${r.author}${r.images.length ? " (with the photo, shown as sent)" : ""}`;
+  const text = rewrite.map((r) => `${label(r)}: ${r.text}`).join("\n\n");
   const flat = normalize(text);
   const prompt = [
     "# Originals",
@@ -200,7 +203,9 @@ async function judgeOnce(messages: Message[], base: Unit[], rewrite: Rewritten[]
     }
     if (!moved) break;
   }
-  const additions = judged.additions.filter((a) => quoted(a.quote, flat));
+  // The judge reads each rewritten message as "label: text", so a label alone isn't something the rewrite added.
+  const labels = new Set(rewrite.map((r) => normalize(label(r))));
+  const additions = judged.additions.filter((a) => quoted(a.quote, flat) && !labels.has(normalize(a.quote).replace(/[\s:]+$/, "")));
   return { units: result, additions };
 }
 
