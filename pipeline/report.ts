@@ -13,7 +13,7 @@ export function report(zoom: Zoom, titles: Map<string, string>): string {
     ``,
     `${zoom.thread}, ${zoom.messages.length} messages, ${zoom.sets.length} sets. Rewrites by ${zoom.models.rewrite}, checked by ${zoom.models.check}. ${zoom.generatedAt}.`,
     ``,
-    `**${pct(zoom.loss.score)} came through** (${line(zoom.loss)}). ${zoom.sets.filter((s) => s.check.loss.lossless).length} of ${zoom.sets.length} sets lossless. Rewrites are ${pct(zoom.sets.reduce((n, s) => n + s.rewrite.reduce((m, r) => m + r.text.length, 0), 0) / original(zoom.sets.flatMap((s) => s.messageIds)))} of the originals' length. Muse Wonder cost $${zoom.costUsd.toFixed(2)} this run.`,
+    `**${pct(zoom.loss.score)} came through** (${line(zoom.loss)}). ${zoom.sets.filter((s) => s.check.loss.lossless).length} of ${zoom.sets.length} sets lossless. Rewrites are ${pct(zoom.sets.reduce((n, s) => n + s.rewrite.reduce((m, r) => m + r.text.length, 0), 0) / original(zoom.sets.flatMap((s) => s.messageIds)))} of the originals' length. Muse Wonder calls the pipeline has made, every run and every draft: $${zoom.costUsd.toFixed(2)}, as OpenRouter billed each one (test calls made outside the pipeline aren't counted).`,
     ``,
     `A unit is one sentence, list item or code block of an original. Two independent judges account for every unit against the rewrite, the stricter verdict counts, and every quote they give as evidence is checked to be in the rewrite word for word. "Exact" is every link, code span, number, ID and photo, checked in code.`,
     ``,

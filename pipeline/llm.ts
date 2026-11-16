@@ -1,11 +1,19 @@
 import { createHash } from "node:crypto";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
 const cacheDir = join(import.meta.dir, "../data/cache");
-let spent = 0;
-export const costUsd = () => spent;
+
+/** What every Muse Wonder call so far has cost, as OpenRouter billed each one. */
+export async function costUsd(): Promise<number> {
+  let total = 0;
+  for (const name of await readdir(cacheDir).catch(() => [])) {
+    const value = await Bun.file(join(cacheDir, name)).json();
+    if (typeof value?.cost === "number") total += value.cost;
+  }
+  return total;
+}
 
 async function cached<T>(key: unknown, run: () => Promise<T>): Promise<T> {
   const file = join(cacheDir, `${createHash("sha256").update(JSON.stringify(key)).digest("hex").slice(0, 24)}.json`);
@@ -42,10 +50,7 @@ export async function muse<T>(turns: Turn[], schema: object): Promise<T> {
       });
       const json: any = await res.json().catch(() => ({}));
       const content = json.choices?.[0]?.message?.content;
-      if (res.ok && content) {
-        spent += json.usage?.cost ?? 0;
-        return { content, cost: json.usage?.cost ?? 0 };
-      }
+      if (res.ok && content) return { content, cost: json.usage?.cost ?? 0 };
       if (attempt === 3) throw new Error(`Muse Wonder ${res.status}: ${JSON.stringify(json).slice(0, 500)}`);
     }
   });

@@ -18,7 +18,7 @@ const { values } = parseArgs({ options: { sets: { type: "string" }, stdin: { typ
 
 if (values.stdin) {
   const messages: Message[] = JSON.parse(await Bun.stdin.text());
-  console.log(JSON.stringify({ ...(await zoom(messages, dataDir)), costUsd: costUsd() }, null, 1));
+  console.log(JSON.stringify(await zoom(messages, dataDir), null, 1));
   process.exit(0);
 }
 
@@ -61,8 +61,8 @@ const zoomed: Zoom = {
     sets.flatMap((s) => s.check.verbatim),
     sets.reduce((n, s) => n + s.check.additions.length, 0),
   ),
-  costUsd: (previous?.costUsd ?? 0) + costUsd(),
+  costUsd: await costUsd(),
 };
 await Bun.write(out, JSON.stringify(zoomed, null, 1));
 await Bun.write(join(dataDir, "zoom-report.md"), report(zoomed, new Map(all.map((s) => [s.id, s.title]))));
-console.error(`zoom.json: ${(zoomed.loss.score * 100).toFixed(1)}% came through, $${costUsd().toFixed(2)} this run`);
+console.error(`zoom.json: ${(zoomed.loss.score * 100).toFixed(1)}% came through, $${zoomed.costUsd.toFixed(2)} of Muse Wonder calls so far`);

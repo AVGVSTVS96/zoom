@@ -85,5 +85,6 @@ export type Zoom = {
   /** Level 3, as data/structure.json defines it, passed through. */
   sections: unknown[];
   loss: Loss;
+  /** What the pipeline's Muse Wonder calls for this data have cost so far, as OpenRouter billed each one. */
   costUsd: number;
 };
