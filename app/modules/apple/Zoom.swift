@@ -98,6 +98,12 @@ final class Pinch: ExactNativeInstance {
     }
 
     private func step(_ now: Double) {
+        // The frame after the stop is reached: the chat has been placed at the stop, and now rests there.
+        if z == goal && velocity == 0 {
+            spring?.stop(); spring = nil
+            events.change("e \(goal)")
+            return
+        }
         let dt = last == 0 ? 1.0 / 60 : min(max((now - last) / 1000, 0), 1.0 / 30)
         last = now
         // A stiff, nearly critically damped spring: no overshoot past a stop worth seeing.
@@ -108,12 +114,10 @@ final class Pinch: ExactNativeInstance {
         z = next
         if abs(goal - z) < 0.002 && abs(velocity) < 0.02 {
             z = goal
-            spring?.stop(); spring = nil
+            velocity = 0
             if ticked != goal { tap(goal) }
-            events.change("e \(goal)")
-        } else {
-            events.change("m \(z) -1")
         }
+        events.change("m \(z) -1")
     }
 
     /// A light tap as the level passes or reaches a stop.
