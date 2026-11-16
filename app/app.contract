@@ -1,7 +1,8 @@
-// zoom: one chat at three levels. Pinch out for less, in for more: every message as sent,
-// Muse Wonder's concise version of each exchange, and the map of sections. Each level holds
-// the same exchanges in the same order, so a zoom keeps your place (docs/design.md).
-use Row, Content, Level, Bubble, SectionHead, Caption, Entry from "./parts.contract"
+// zoom: one chat at three levels, stops on one scale. Pinch together for less, apart for more:
+// the map of sections, Muse Wonder's short version of each exchange, and every message as sent.
+// Every level is the chat in chat order, so a zoom keeps the message under your fingers where it was
+// (docs/design.md).
+use Content, Level from "./parts.contract"
 
 routes nav
   home "/"
@@ -10,88 +11,146 @@ shape Viewport
   width: number
   prefersReducedMotion: bool
 
+fn stops(scale: number, speed: number): number = scale < 0.49 ? 2 : scale < 0.79 or (scale < 0.95 and speed < -1) ? 1 : scale > 2.02 ? -2 : scale > 1.26 or (scale > 1.05 and speed > 1) ? -1 : 0
+
+// The place at level `b` for `key` at level `a`: the same key, unless content.anchors names another.
+fn hop(anchors: string[], a: number, b: number, key: string): string = match anchors.filter(x => x.startsWith(`${a}${b}:${key}=`)).at(0) { case some(x) => x.slice(key.length + 4), case none => key }
+
+// The first place on screen at a level, in reading order.
+fn firstIn(order: string[], visible: string[], level: number, otherwise: string): string = match order.filter(k => visible.includes(`${level}-${k}`)).at(0) { case some(k) => k, case none => otherwise }
+
 component App
   resource content = loadContent() as shape Content
   resource viewport = exactViewport() as shape Viewport
-  // Where you are: the level, and the exchange (a set's id) you were reading. Both outlast a quit.
-  state level = 3 persist
+  // 1 Full, 2 Short, 3 Map, and the place you were on (a section, set or message key): both outlast a quit.
+  state level = 2 persist
   state focus = "" persist
   state restored = false
-  // The rows each level shows in view now, so a zoom lands on the first of them.
+  // What each level shows now, how far each has scrolled, and where a zoom sends it.
   state visible = []
+  state top1 = 0
+  state top2 = 0
+  state top3 = 0
+  state jump1 = 0
+  state jump2 = 0
+  state jump3 = 0
   state lensScale = 1
   state lensX = 0
   state lensY = 0
   derive still = viewport.prefersReducedMotion
-  derive rows = level == 1 ? content.one : level == 2 ? content.two : content.three
-  derive here = match rows.filter(r => visible.includes(r.key)).at(0) { case some(r) => r.set, case none => focus }
+  // Wide enough for a 300pt map beside a 560pt chat: the map stays on the left, and the control has two stops.
+  derive side = viewport.width >= 860
+  derive shown = side and level == 3 ? 2 : level
+  derive levels = side ? [1, 2] : [1, 2, 3]
+  derive sets = content.sections.map(s => s.sets.map(t => t.id)).flat()
+  derive newest = match sets.at(sets.length - 1) { case some(t) => t, case none => "" }
+  derive order = content.sections.map(s => [`s-${s.id}`].concat(s.sets.map(t => [t.id].concat(t.short.map(m => m.key)).concat(t.full.map(m => m.key))).flat())).flat()
+  derive first = firstIn(order, visible, shown, focus)
+  derive current = side ? hop(content.anchors, shown, 3, first) : ""
 
   task restore when current(content) and not restored
-    after(1, land, wait=update)
+    after(1, land)
 
+  // The app opens at Short on the newest set, at the bottom, and after that where it was left.
   action land
     restored = true
-    if focus != ""
-      scrollIntoView(`${level}-${focus}`, block="start")
+    if focus == ""
+      scrollIntoView(`${shown}-${newest}`, block="start")
+    else
+      scrollIntoView(`${shown}-${focus}`, block="start")
 
   action seen(key: string, e: IntersectionObserverEntry)
-    if e.isIntersecting
-      if not visible.includes(key)
-        visible = visible.concat([key])
-    else
-      visible = visible.filter(k => k != key)
+    let now = e.isIntersecting ? (visible.includes(key) ? visible : visible.concat([key])) : visible.filter(k => k != key)
+    visible = now
+    if restored
+      focus = firstIn(order, now, shown, focus)
 
-  // A zoom lands the next level on the exchange you were reading, then fades it in.
-  action zoomTo(next: number)
-    if next >= 1 and next <= 3 and next != level
-      scrollIntoView(`${next}-${here}`, block="start")
-      focus = here
+  action moved(n: number, x: number, y: number)
+    if n == 1
+      top1 = y
+    else if n == 2
+      top2 = y
+    else
+      top3 = y
+
+  // The next level opens with the anchor's place where the anchor is now. `scale` is the page's while
+  // a pinch holds it, so its distances are the unscaled layout's.
+  action zoomAt(next: number, anchor: string, scale: number)
+    if next >= 1 and next <= (side ? 2 : 3) and next != shown
+      let to = hop(content.anchors, shown, next, anchor)
+      let from = frame(`${shown}-${anchor}`)
+      let dest = frame(`${next}-${to}`)
+      if not from.unavailable and not dest.unavailable
+        let delta = (dest.y - from.y) / scale
+        if next == 1
+          jump1 = max(0, top1 + delta) == jump1 ? jump1 + 0.5 : max(0, top1 + delta)
+        else if next == 2
+          jump2 = max(0, top2 + delta) == jump2 ? jump2 + 0.5 : max(0, top2 + delta)
+        else
+          jump3 = max(0, top3 + delta) == jump3 ? jump3 + 0.5 : max(0, top3 + delta)
+      focus = to
       level = next
       haptic("selection")
 
-  // Opening one exchange from the map or the concise level: the level below, at that exchange.
-  action open(set: string)
-    if level > 1
-      scrollIntoView(`${level - 1}-${set}`, block="start")
-      focus = set
-      level = level - 1
-      haptic("selection")
+  action zoomTo(next: number)
+    zoomAt(next, first, 1)
+
+  // A tap goes one level in: a row on the map opens its set, a rewritten message the originals it carries.
+  action open(key: string)
+    if shown > 1
+      zoomAt(shown - 1, key, 1)
+
+  // A tap on the map beside the chat brings that set to the top.
+  action show(set: string)
+    scrollIntoView(`${shown}-${set}`, block="start")
+    haptic("selection")
 
   action lensGeometry(bw: number, bh: number, pw: number, ph: number)
     lensX = 0
 
-  // The pinch scales the page live under the fingers; letting go past a step zooms a level.
+  // The pinch scales the page under the fingers; letting go springs it back and takes each stop
+  // passed: one per 1.6× of scale, taken past halfway, or the next one on a fast pinch. The place
+  // under the pinch's midpoint is the anchor; the midpoint is where the page's scale held still.
   action released(x: number, y: number, scale: number, vx: number, vy: number, vscale: number)
     lensScale = 1
     lensX = 0
     lensY = 0
-    if scale < 0.84 or (scale < 0.97 and vscale < -0.6)
-      zoomTo(level + 1)
-    else if scale > 1.16 or (scale > 1.03 and vscale > 0.6)
-      zoomTo(level - 1)
+    let step = stops(scale, vscale)
+    if step != 0
+      let clip = frame("clip")
+      let fx = clip.x + clip.width / 2 + x / (1 - scale)
+      let fy = clip.y + clip.height / 2 + y / (1 - scale)
+      let hit = elementsFromPoint(min(max(fx, clip.x + 1), clip.x + clip.width - 1), min(max(fy, clip.y + 1), clip.y + clip.height - 1)).filter(i => i.startsWith(`${shown}-`))
+      let anchor = match hit.at(0) { case some(i) => (i.endsWith("~") ? i.slice(2, i.length - 1) : i.slice(2)), case none => first }
+      zoomAt(min(side ? 2 : 3, max(1, shown + step)), anchor, scale)
 
   view
-    main testId="root" navigationKey=`${top(nav).id}` width="100%" height="100%"
+    main testId="root" navigationKey=`${top(nav).id}` width="100%" height="100%" accent-color="-exact-system-indigo"
       for e in stack(nav) key=e.id
-        column navigationKey=`${e.id}` navigationScroll=`level-${level}` position="absolute" inset=0 display="flex" flex-direction="column"
-          header
-            text content.title role="heading" aria-level=2
-            text (level == 1 ? `${content.messages} messages · ${content.span}` : level == 2 ? (content.kept != "" ? `Muse Wonder · ${content.kept}` : "Muse Wonder · rewriting") : `${content.three.filter(r => r.kind == "section").length} sections · tap one to read it`) testId="subtitle"
-          column flex=1 min-height=0 overflow="hidden" position="relative" padding=0 border-width=0
-            column id="lens" width="100%" height="100%" box-sizing="border-box" position="relative" padding=0 margin=0 border-width=0
-              scale=lensScale translate=`${lensX}px ${lensY}px` transition=(still ? "none" : "scale -exact-spring(260, 26, 1), translate -exact-spring(260, 26, 1)")
-              for n in [1, 2, 3] key=n
-                scroll id=`level-${n}` position="absolute" inset=0 inert=(level != n) aria-hidden=(level != n)
-                  opacity=(level == n ? 1 : 0) transition=(still ? "none" : "opacity 220ms ease") testId=`level-${n}`
-                  column transformDragFor="lens" touch-action="pan-y" transformgeometry=lensGeometry transformrelease=released
-                    padding="4px 0 120px" align-items="center" min-height="100%" box-sizing="border-box"
-                    Level(rows=(n == 1 ? content.one : n == 2 ? content.two : content.three), seen=seen, open=open, wide=viewport.width >= 700)
-          row position="absolute" left=0 right=0 bottom="calc(env(safe-area-inset-bottom) + 12px)" justify-content="center" pointer-events="none"
-            row backgroundMaterial="glass" border-radius=22 padding=4 pointer-events="auto" width="19rem" max-width="calc(100% - 48px)"
-              row role="radiogroup" aria-label="Zoom" flex=1
-                button role="radio" aria-checked=(level == 1) press=zoomTo(1) testId="zoom-1" flex=1
-                  text "Messages"
-                button role="radio" aria-checked=(level == 2) press=zoomTo(2) testId="zoom-2" flex=1
-                  text "Concise"
-                button role="radio" aria-checked=(level == 3) press=zoomTo(3) testId="zoom-3" flex=1
-                  text "Map"
+        row navigationKey=`${e.id}` navigationScroll=`level-${shown}` position="absolute" inset=0 -exact-safe-area="bottom"
+          if side
+            scroll id="side" width="18.75rem" flex-shrink=0 testId="side"
+              column padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 24px)"
+                Level(n=3, content=content, current=current, seen=seen, open=show)
+            box width=0.5 flex-shrink=0 background-color="-exact-separator"
+          column flex=1 min-width=0 position="relative" display="flex" flex-direction="column"
+            column id="clip" flex=1 min-height=0 overflow="hidden" position="relative" padding=0 border-width=0
+              column id="lens" width="100%" height="100%" box-sizing="border-box" position="relative" padding=0 margin=0 border-width=0
+                scale=lensScale translate=`${lensX}px ${lensY}px` transition=(still ? "none" : "scale -exact-spring(260, 26, 1), translate -exact-spring(260, 26, 1)")
+                for n in levels key=n
+                  scroll id=`level-${n}` position="absolute" inset=0 inert=(shown != n) aria-hidden=(shown != n)
+                    scrollTop=(n == 1 ? jump1 : n == 2 ? jump2 : jump3) scroll=moved(n)
+                    opacity=(shown == n ? 1 : 0) transition=(still ? "none" : "opacity 240ms ease") testId=`level-${n}`
+                    column transformDragFor=(shown == n ? "lens" : "") touch-action="pan-y" transformgeometry=lensGeometry transformrelease=released
+                      align-items="center" min-height="100%" padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 96px)" box-sizing="border-box"
+                      Level(n=n, content=content, current="", seen=seen, open=open)
+            row position="absolute" left=0 right=0 bottom="calc(var(--exact-safe-area-inset-bottom) + 6px)" justify-content="center" pointer-events="none"
+              row backgroundMaterial="glass" border-radius=24 padding=4 pointer-events="auto" width=(side ? "12rem" : "17rem") max-width="calc(100% - 48px)"
+                row role="radiogroup" aria-label="Zoom" flex=1
+                  if not side
+                    button role="radio" aria-checked=(shown == 3) press=zoomTo(3) testId="zoom-3" flex=1
+                      text "Map"
+                  button role="radio" aria-checked=(shown == 2) press=zoomTo(2) testId="zoom-2" flex=1
+                    text "Short"
+                  button role="radio" aria-checked=(shown == 1) press=zoomTo(1) testId="zoom-1" flex=1
+                    text "Full"
