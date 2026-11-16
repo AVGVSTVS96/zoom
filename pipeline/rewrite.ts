@@ -74,14 +74,22 @@ function target(messages: Message[]): string {
 
 type Draft = { messages: Omit<Rewritten, "images">[] };
 
+/** Asks Muse Wonder to put back what a check found `draft` lost. */
+export const repair = (gaps: string[]) =>
+  `A strict check against the originals found what this draft lost or changed:\n\n${gaps.map((g) => `- ${g}`).join("\n")}\n\nChange only what it takes to carry these, and keep the rest of your draft as it is.`;
+
+/** Asks Muse Wonder to cut a lossless draft that came out long. */
+export const tighten = (share: number) =>
+  `A strict check found nothing lost, but this is ${Math.round(share * 100)}% of the originals' length. Cut it toward 60%, keeping everything it says.`;
+
 /**
- * Muse Wonder's rewrite of one message or a set of them.
- * `gaps`, from a check of `previous`, asks it to put back what that draft lost.
+ * Muse Wonder's rewrite of one message or a set of them, or, given `previous`,
+ * its next version of that draft as `previous.ask` asks.
  */
 export async function rewrite(
   messages: Message[],
   dataDir: string,
-  previous?: { draft: Rewritten[]; gaps: string[] },
+  previous?: { draft: Rewritten[]; ask: string },
 ): Promise<Rewritten[]> {
   const turns: Turn[] = [
     { role: "system", content: system },
@@ -89,13 +97,7 @@ export async function rewrite(
   ];
   if (previous) {
     const draft: Draft = { messages: previous.draft.map(({ author, text, from }) => ({ author, text, from })) };
-    turns.push(
-      { role: "assistant", content: JSON.stringify(draft) },
-      {
-        role: "user",
-        content: `A strict check against the originals found what this draft lost or changed:\n\n${previous.gaps.map((g) => `- ${g}`).join("\n")}\n\nChange only what it takes to carry these, and keep the rest of your draft as it is.`,
-      },
-    );
+    turns.push({ role: "assistant", content: JSON.stringify(draft) }, { role: "user", content: previous.ask });
   }
   const draft = await muse<Draft>(turns, schema);
   const ids = new Set(messages.map((m) => m.id));
