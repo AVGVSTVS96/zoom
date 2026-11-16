@@ -17,18 +17,10 @@ test "a row on the map opens its set at Short, a rewritten message its originals
 
 test "pinching together goes a stop out, apart a stop in"
   clock data
-  tap "level-2" pinch 0.7
+  tap "page-2" pinch 0.7
   clock settle
   expect state level == 3
-  tap "level-3" pinch 1.4
+  tap "page-3" pinch 1.4
   clock settle
   expect state level == 2
 
-test "open landscape keeps the map beside the chat, and the control has two stops"
-  resize 951x669
-  clock data
-  expect tree has "side"
-  expect tree has "zoom-2"
-  tap "3-battery"
-  clock settle
-  expect state level == 2

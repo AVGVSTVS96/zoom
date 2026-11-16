@@ -141,7 +141,7 @@ component App
                   scroll id=`level-${n}` position="absolute" inset=0 inert=(shown != n) aria-hidden=(shown != n)
                     scrollTop=(n == 1 ? jump1 : n == 2 ? jump2 : jump3) scroll=moved(n)
                     opacity=(shown == n ? 1 : 0) transition=(still ? "none" : "opacity 240ms ease") testId=`level-${n}`
-                    column transformDragFor=(shown == n ? "lens" : "") touch-action="pan-y" transformgeometry=lensGeometry transformrelease=released
+                    column testId=`page-${n}` transformDragFor=(shown == n ? "lens" : "") touch-action="pan-y" transformgeometry=lensGeometry transformrelease=released
                       align-items="center" min-height="100%" padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 96px)" box-sizing="border-box"
                       Level(n=n, content=content, current="", seen=seen, open=open)
             row position="absolute" left=0 right=0 bottom="calc(var(--exact-safe-area-inset-bottom) + 6px)" justify-content="center" pointer-events="none"
