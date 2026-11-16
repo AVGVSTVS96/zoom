@@ -4,9 +4,9 @@ import type { Message, Rewritten } from "./types";
 
 const system = `You rewrite a stretch of a Telegram chat between Bassim ("owner") and hex, his AI assistant. Bassim reads your version in place of the originals, so he can read fast and miss nothing.
 
-The messages were sent one after another and never edited, so they run long: explanations that a later message overturns, drafts that get replaced, the same point made twice, questions answered further down, hedges and preambles. Write the same messages again as they'd read had each been edited once the conversation settled: every point said once, in its final form, in the fewest words that carry it. Where hex was wrong and corrected itself, give the right answer and say briefly what was wrong. This is still the conversation, from the same speakers in their own voices, with hex speaking to Bassim as "you"; not an overview of it. A long exchange usually comes out at half its length or less.
+The messages were sent one after another and never edited, so they run long: explanations that a later message overturns, drafts that get replaced, the same point made twice, questions answered further down, hedges and preambles. Write the same messages again as they'd read had each been edited once the conversation settled: every point said once, in its final form, in the fewest words that carry it. Where hex was wrong and corrected itself, give the right answer and say briefly what was wrong. This is still the conversation, from the same speakers in their own voices, with hex speaking to Bassim as "you"; not an overview of it. Most of the cutting is in hex's messages: merge hex's messages in a row into one, give each point once in its final form, and fold reasoning a later message overturns into a few words.
 
-It has to be lossless: everything a reader learns from the originals stays, every fact, name, number, date and time, link, ID, list item, step, question, request, decision, caveat and open question, and who said each, with a guess still a guess and a ruled-out option still ruled out. Greetings, acknowledgements, apologies, promises the set goes on to keep, and tone can go. Links, code, commands and anything meant to be copied (like a drafted text to send) stay exactly as written. Photos show beside your rewrite as sent.
+It has to be lossless: everything a reader learns from the originals stays, every fact, name, number, date and time, link, ID, list item, step, question, request, decision, caveat and open question, and who said each, with a guess still a guess and a ruled-out option still ruled out. Greetings, acknowledgements, apologies, promises the set goes on to keep, and tone can go. Links, code, commands and anything meant to be copied (like a drafted text to send) stay exactly as written. Photos show beside your rewrite as sent. A quoted message a reply points to is context from outside the set, not one of its messages.
 
 Write Telegram markdown. Use a comma, colon or semicolon where an em dash might go.
 
@@ -64,6 +64,11 @@ async function originals(messages: Message[], dataDir: string): Promise<Part[]> 
   return parts;
 }
 
+const target = (messages: Message[]) => {
+  const length = messages.reduce((n, m) => n + m.text.length, 0);
+  return `These are ${length} characters. Aim for about half that; a strict check follows and tells you anything to put back.`;
+};
+
 type Draft = { messages: Omit<Rewritten, "images">[] };
 
 /**
@@ -77,7 +82,7 @@ export async function rewrite(
 ): Promise<Rewritten[]> {
   const turns: Turn[] = [
     { role: "system", content: system },
-    { role: "user", content: await originals(messages, dataDir) },
+    { role: "user", content: [...(await originals(messages, dataDir)), { type: "text", text: target(messages) }] },
   ];
   if (previous) {
     const draft: Draft = { messages: previous.draft.map(({ author, text, from }) => ({ author, text, from })) };
@@ -91,9 +96,9 @@ export async function rewrite(
   }
   const draft = await muse<Draft>(turns, schema);
   const ids = new Set(messages.map((m) => m.id));
-  return draft.messages.map((r) => {
+  return draft.messages.flatMap((r) => {
     const from = r.from.filter((id) => ids.has(id));
     const images = messages.filter((m) => m.image && from.includes(m.id)).map((m) => m.image!);
-    return { author: r.author, text: r.text, from, images };
+    return from.length ? [{ author: r.author, text: r.text, from, images }] : [];
   });
 }

@@ -14,8 +14,12 @@ export function units(messages: Message[]): Unit[] {
         for (const line of chunk.split("\n")) {
           const links: string[] = [];
           const held = line.replace(/\[[^\]]*\]\([^)]*\)/g, (link) => `\u0000${links.push(link) - 1}\u0000`);
-          for (const piece of held.split(/(?<=[a-z0-9)"'`*]{2}[.!?])\s+(?=[A-Z0-9"“(\[*`])/))
-            pieces.push(piece.replace(/\u0000(\d+)\u0000/g, (_, i) => links[Number(i)]));
+          const sentences = held.split(/(?<=[a-z0-9)"'`*]{2}[.!?])\s+(?=[A-Z0-9"“(\[*`])/);
+          for (const [i, piece] of sentences.entries()) {
+            // A list marker like "10." belongs to the sentence after it.
+            if (/^\s*\d+\.$/.test(piece) && i + 1 < sentences.length) sentences[i + 1] = `${piece} ${sentences[i + 1]}`;
+            else pieces.push(piece.replace(/\u0000(\d+)\u0000/g, (_, n) => links[Number(n)]));
+          }
         }
     }
     if (m.poll) pieces.push(`Poll options: ${m.poll.join(" / ")}`);
