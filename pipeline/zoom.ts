@@ -13,7 +13,7 @@ export async function zoom(messages: Message[], dataDir: string, repairs = 2): P
   let draft = await rewrite(messages, dataDir);
   let best = { draft, check: await check(messages, draft, [0], dataDir) };
   let rounds = 1;
-  while (!best.check.loss.lossless || best.check.additions.length) {
+  while (!best.check.loss.lossless) {
     if (rounds > repairs) break;
     draft = await rewrite(messages, dataDir, { draft: best.draft, gaps: gaps(best.check) });
     const next = await check(messages, draft, [0], dataDir);

@@ -35,14 +35,14 @@ export function report(zoom: Zoom, titles: Map<string, string>): string {
   out.push(``, `## What the rewrites added`, ``, added.length ? added.join("\n") : "Nothing.");
   const folds = zoom.sets.flatMap((s) =>
     s.check.units
-      .filter((u) => u.verdict === "superseded" || u.verdict === "duplicate")
-      .map((u) => `- **${titles.get(s.id) ?? s.id}**, msg ${u.messageId}, ${u.verdict} by ${u.ref}: "${u.text}"${u.detail ? `\n  ${u.detail}` : ""}`),
+      .filter((u) => u.verdict === "superseded" || u.verdict === "duplicate" || u.verdict === "dropped")
+      .map((u) => `- **${titles.get(s.id) ?? s.id}**, msg ${u.messageId}, ${u.verdict}${u.ref ? ` by ${u.ref}` : ""}: "${u.text}"${u.detail ? `\n  ${u.detail}` : ""}`),
   );
   out.push(
     ``,
-    `## What folded into a later or repeated line`,
+    `## What folded away`,
     ``,
-    `Counted as carried: the judges found the same information in the unit named, and that unit came through.`,
+    `Counted as carried: a duplicate or superseded unit's information is in the unit named, which came through; a dropped one is a greeting, acknowledgement, apology or tone.`,
     ``,
     folds.length ? folds.join("\n") : "Nothing.",
   );

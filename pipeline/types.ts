@@ -27,7 +27,7 @@ export type Rewritten = {
 };
 
 /** How one piece of an original came through the rewrite. */
-export type Verdict = "kept" | "duplicate" | "superseded" | "partial" | "changed" | "missing";
+export type Verdict = "kept" | "duplicate" | "superseded" | "dropped" | "partial" | "changed" | "missing";
 
 /** One sentence, list item or code block of an original message. */
 export type Unit = {
@@ -57,6 +57,7 @@ export type Loss = {
   additions: number;
   /** Share of everything checked (units and verbatim) that came through, 0 to 1. */
   score: number;
+  /** Everything came through and nothing was added. */
   lossless: boolean;
 };
 

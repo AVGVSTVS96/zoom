@@ -104,6 +104,9 @@ The originals are split into numbered units. Account for every unit:
 - partial: some of it is there, but a detail is gone or vaguer. quote what is there; detail: exactly what's missing.
 - changed: the rewrite says something different (a wrong number, person, or time; a hedge turned certain; a reason or caveat altered). quote and detail.
 - missing: none of it is there. detail: what's lost.
+- dropped: a greeting, acknowledgement, apology or bit of tone that tells the reader nothing, left out.
+
+Who said what holds: Bassim's words stay his and hex's stay hex's; a guess stays a guess, what was checked stays checked, a question to him stays a question, and an option he ruled out stays ruled out. Anything else is changed.
 
 Be strict about information: a dropped name, number, link, list item, reason or condition, or a change in how sure something is, makes a unit partial. Wording isn't information: rewording, merging, reordering, and cutting filler or emphasis that doesn't change what the reader knows or would do are fine. So are formatting, emoji and message metadata (times, ids, reply markers).
 
@@ -118,7 +121,7 @@ const schema = {
         type: "object",
         properties: {
           id: { type: "string" },
-          verdict: { type: "string", enum: ["kept", "duplicate", "superseded", "partial", "changed", "missing"] },
+          verdict: { type: "string", enum: ["kept", "duplicate", "superseded", "dropped", "partial", "changed", "missing"] },
           quote: { type: "string" },
           ref: { type: "string" },
           detail: { type: "string" },
@@ -143,7 +146,7 @@ const schema = {
 
 type Judged = { units: { id: string; verdict: Verdict; quote: string; ref: string; detail: string }[]; additions: Addition[] };
 
-const severity: Record<Verdict, number> = { kept: 0, duplicate: 0, superseded: 0, partial: 1, changed: 2, missing: 3 };
+const severity: Record<Verdict, number> = { kept: 0, duplicate: 0, superseded: 0, dropped: 0, partial: 1, changed: 2, missing: 3 };
 const conveyed = (v: Verdict) => severity[v] === 0;
 
 /** One judge run, with every quote and reference it gives checked in code. */
@@ -226,7 +229,7 @@ export function loss(units: Unit[], exact: Verbatim[], additions: number): Loss 
     verbatimKept,
     additions,
     score: total ? (unitsKept + verbatimKept) / total : 1,
-    lossless: unitsKept === units.length && verbatimKept === exact.length,
+    lossless: unitsKept === units.length && verbatimKept === exact.length && additions === 0,
   };
 }
 
