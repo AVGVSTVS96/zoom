@@ -113,7 +113,7 @@ The originals are split into numbered units. Account for every unit:
 
 Who said what holds: Bassim's words stay his and hex's stay hex's; a guess stays a guess, what was checked stays checked, a question to him stays a question, and an option he ruled out stays ruled out. Anything else is changed.
 
-Be strict about information: a dropped name, number, link, list item, reason or condition, or a change in how sure something is, makes a unit partial. Wording isn't information: rewording, merging, reordering, and cutting filler or emphasis that doesn't change what the reader knows or would do are fine. So are formatting, emoji and message metadata (times, ids, reply markers).
+Be strict about information: a dropped name, number, link, list item, reason or condition, or a change in how sure something is, makes a unit partial. Wording isn't information: rewording, merging, reordering, and cutting filler or emphasis that doesn't change what the reader knows or would do are fine. So is leaving out formatting, emoji and message metadata (times, ids, reply markers); adding metadata as text is an addition.
 
 Then list additions: anything the rewrite states that the originals don't support, quoted exactly.`;
 
