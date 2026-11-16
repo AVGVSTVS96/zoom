@@ -63,7 +63,8 @@ for pose in $poses; do
     xcrun simctl ui "$id" appearance "$appearance"
     run=()
     for op in "$@"; do
-      case $op in "screenshot "*.png*) set -- $op; run+=("screenshot $out/${2%.png}-$pose-$appearance.png ${*:3}") ;; *) run+=("$op") ;; esac
+      read -ra w <<<"$op"
+      case $op in "screenshot "*.png*) run+=("screenshot $out/${w[1]%.png}-$pose-$appearance.png ${w[*]:2}") ;; *) run+=("$op") ;; esac
     done
     bun exact.mjs agent ios --sim "$id" --storage "$pose-$appearance" --scale 3 "${run[@]}" 2>&1 | tail -40
   done
