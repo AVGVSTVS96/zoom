@@ -1,5 +1,5 @@
 // Builds app/content.json, the one file the app reads, from data/: the thread export
-// (general.json), the designer's grouping (structure.json) and Muse Wonder's rewrites
+// (general.json), the designer's grouping (structure.json) and Haiku's summaries
 // (zoom.json, once the pipeline has written it). data/ stays out of git, so the app gets its
 // messages here, at build time. docs/design.md says what each level holds.
 //   bun scripts/content.ts [data dir]
@@ -25,9 +25,7 @@ type Raw = {
   poll_options?: string;
 };
 type Rewritten = { author: Author; text: string; from: number[]; images: string[] };
-type Loss = { score: number; lossless: boolean };
-type Unit = { text: string; verdict: string; detail?: string };
-type RewriteSet = { id: string; messageIds: number[]; rewrite: Rewritten[]; check: { loss: Loss; units: Unit[]; additions?: unknown[] } };
+type RewriteSet = { id: string; messageIds: number[]; rewrite: Rewritten[] };
 type Set = { id: string; title: string; messageIds: number[]; waiting?: string };
 type Section = { id: string; title: string; sets: Set[] };
 
@@ -36,7 +34,7 @@ const read = <T>(name: string): T | undefined =>
 const thread = read<{ from: string; to: string; messages: Raw[] }>("general.json");
 const structure = read<{ sections: Section[] }>("structure.json");
 if (!thread || !structure) throw new Error(`${data} needs general.json and structure.json`);
-const zoom = read<{ sets: RewriteSet[]; loss: Loss }>("zoom.json");
+const zoom = read<{ sets: RewriteSet[] }>("zoom.json");
 
 const time = (at: string) => new Date(at).toLocaleTimeString("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit" });
 const day = (at: string) => new Date(at).toLocaleDateString("en-US", { timeZone: zone, weekday: "short" });
@@ -71,10 +69,8 @@ const photo = (file?: string) => {
   return `assets/media/${basename(file)}`;
 };
 
-const percent = (score: number) => `${Math.floor(score * 1000) / 10}%`;
-
 // A message as its level shows it: Full adds its time, the message it replies to, a photo, a poll's
-// options and whether it was forwarded or edited; Short is Muse Wonder's text alone. A post older than
+// options and whether it was forwarded or edited; Short is the summary's text alone. A post older than
 // the window and edited inside it shows the edit's time.
 type Raw2 = Raw & { older_message_edited_in_window?: boolean; sent_by?: string | null };
 const message = (key: string, m: Raw2) => ({
@@ -94,7 +90,7 @@ const shown = (m: Raw2) => m.older_message_edited_in_window ? m.edited_at ?? m.a
 // first original it carries, so a pinch in lands on that original.
 const anchors: string[] = [];
 const stale: string[] = [];
-const tally = { units: 0, kept: 0, additions: 0 };
+const tally = { full: 0, short: 0 };
 const sections = structure.sections.map((section) => ({
   id: section.id,
   title: section.title,
@@ -106,18 +102,10 @@ const sections = structure.sections.map((section) => ({
     const written = rewrites.get(set.id);
     const rewrite = written && written.messageIds.join() === set.messageIds.join() ? written : undefined;
     if (written && !rewrite) stale.push(set.id);
-    const loss = rewrite?.check.loss as (Loss & { units: number; unitsKept: number; verbatim: number; verbatimKept: number; additions: number }) | undefined;
-    if (loss) {
-      tally.units += loss.units + loss.verbatim;
-      tally.kept += loss.unitsKept + loss.verbatimKept;
-      tally.additions += loss.additions;
-    }
-    // The gate: only a lossless rewrite stands in for its originals at Short.
-    const passed = Boolean(loss?.lossless) && !loss?.additions && !rewrite?.check.additions?.length;
     const full = msgs.map((m) => message(`msg-${m.id}`, m));
     const used = new Set<string>();
-    const short = passed
-      ? rewrite!.rewrite.map((r, n) => {
+    const short = rewrite
+      ? rewrite.rewrite.map((r, n) => {
           const first = r.from.find((id) => set.messageIds.includes(id));
           let key = first ? `msg-${first}` : `${set.id}-${n}`;
           if (used.has(key)) key = `${key}-${n}`;
@@ -125,6 +113,10 @@ const sections = structure.sections.map((section) => ({
           return { ...message(key, { ...byId.get(first ?? msgs[0].id)!, text: r.text, image: r.images[0] }), time: "", reply: "", note: "", from: r.from };
         })
       : full.map((m) => ({ ...m, from: [Number(m.key.slice(4))] }));
+    if (rewrite) {
+      tally.full += msgs.reduce((n, m) => n + m.text.length, 0);
+      tally.short += short.reduce((n, m) => n + m.text.length, 0);
+    }
     for (const m of short) {
       const down = m.from.find((id) => set.messageIds.includes(id));
       if (`msg-${down}` !== m.key) anchors.push(`21:${m.key}=${down ? `msg-${down}` : set.id}`);
@@ -140,8 +132,8 @@ const sections = structure.sections.map((section) => ({
       id: set.id,
       title: set.title,
       count: msgs.length,
-      kept: loss ? (passed ? "lossless" : `${percent(loss.score)} came through`) : "",
-      original: !passed,
+      kept: "",
+      original: !rewrite,
       short: short.map(({ from, ...m }) => m),
       full,
     };
@@ -150,17 +142,17 @@ const sections = structure.sections.map((section) => ({
 
 if (stale.length) console.warn(`zoom.json rewrote ${stale} from other messages than structure.json now holds; they show their originals`);
 const sets = sections.flatMap((s) => s.sets);
-const rewritten = sets.filter((s) => s.kept !== "").length;
+const rewritten = sets.filter((s) => !s.original).length;
 const content = {
   totals: [
     `${thread.messages.length} messages`,
     `${sets.length} sets`,
-    tally.units
-      ? `${percent(tally.kept / tally.units)} came through Muse Wonder${tally.additions ? `, ${tally.additions} added` : ""}${rewritten < sets.length ? ` (${rewritten} of ${sets.length} sets checked)` : ""}`
-      : "Muse Wonder is still rewriting",
+    rewritten
+      ? `Short is ${Math.round((tally.short / tally.full) * 100)}% of Full${rewritten < sets.length ? ` (${rewritten} of ${sets.length} sets summarized)` : ""}`
+      : "Not summarized yet",
   ].join(" · "),
   anchors,
   sections,
 };
 writeFileSync(join(app, "content.json"), `${JSON.stringify(content, null, 1)}\n`);
-console.log(`app/content.json: ${thread.messages.length} messages, ${sets.length} sets in ${sections.length} sections, ${sets.filter((s) => !s.original).length} rewritten losslessly`);
+console.log(`app/content.json: ${thread.messages.length} messages, ${sets.length} sets in ${sections.length} sections, ${sets.filter((s) => !s.original).length} summarized`);

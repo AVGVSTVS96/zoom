@@ -19,7 +19,7 @@ export type Message = {
   poll?: string[];
 };
 
-/** Level 2: Muse Wonder's rewrite of a set of messages, as messages. */
+/** Level 2: the summary of a set of messages, as messages. */
 export type Rewritten = {
   author: Author;
   text: string;
@@ -28,50 +28,12 @@ export type Rewritten = {
   images: string[];
 };
 
-/** How one piece of an original came through the rewrite. */
-export type Verdict = "kept" | "duplicate" | "superseded" | "dropped" | "partial" | "changed" | "missing";
-
-/** One sentence, list item or code block of an original message. */
-export type Unit = {
-  id: string;
-  messageId: number;
-  text: string;
-  verdict: Verdict;
-  /** What the rewrite lost or got wrong, for partial, changed and missing. */
-  detail?: string;
-  /** Text in the rewrite that carries it, checked to be there word for word. */
-  quote?: string;
-  /** The unit that carries it instead, for duplicate and superseded. */
-  ref?: string;
-};
-
-/** A link, code span, number or ID that has to survive word for word. */
-export type Verbatim = { messageId: number; text: string; kind: "link" | "code" | "number" | "image"; kept: boolean };
-
-/** A claim in the rewrite that the originals don't back. */
-export type Addition = { quote: string; detail: string };
-
-export type Loss = {
-  units: number;
-  unitsKept: number;
-  verbatim: number;
-  verbatimKept: number;
-  additions: number;
-  /** Share of everything checked (units and verbatim) that came through, 0 to 1. */
-  score: number;
-  /** Everything came through and nothing was added. */
-  lossless: boolean;
-};
-
-export type Check = { loss: Loss; units: Unit[]; verbatim: Verbatim[]; additions: Addition[] };
-
 export type RewriteSet = {
   id: string;
   messageIds: number[];
   rewrite: Rewritten[];
   /** Characters in the rewrite over characters in the originals. */
   length: number;
-  check: Check;
 };
 
 export type Zoom = {
@@ -79,12 +41,9 @@ export type Zoom = {
   from: string;
   to: string;
   generatedAt: string;
-  models: { rewrite: string; check: string };
+  model: string;
   messages: Message[];
   sets: RewriteSet[];
   /** Level 3, as data/structure.json defines it, passed through. */
   sections: unknown[];
-  loss: Loss;
-  /** What the pipeline's Muse Wonder calls for this data have cost so far, as OpenRouter billed each one. */
-  costUsd: number;
 };

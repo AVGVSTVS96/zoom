@@ -46,7 +46,7 @@ Four things the design needs from `zoom.json`:
 1. A set's rewrite is a short run of messages, each with its author and `from`, the ids of the originals it carries. Level 2 is still a chat, and `from` is how a pinch finds its place.
 2. A message keeps the text of the message it replies to.
 3. A message that is older than the window and was edited inside it says so, and its time is the edit's.
-4. A set whose check is not lossless shows its originals at level 2.
+4. A set's summary is at most half its originals' length.
 
 ## From the post
 
@@ -82,7 +82,7 @@ Table for…     4                                On it.
 | level | name  | a set's body                         | for                                   |
 | ----- | ----- | ------------------------------------ | ------------------------------------- |
 | 3     | Map   | none                                 | seeing everything, finding a place    |
-| 2     | Short | Muse Wonder's rewrite                | reading                               |
+| 2     | Short | Haiku 5.5's summary                  | reading                               |
 | 1     | Full  | the original messages, word for word | the exact words, checking the rewrite |
 
 The title is the handle. A set's title is the same words at the same left edge at all three levels: a line on the map, the heading over the rewrite, the heading over the originals. It is what the eye holds while everything around it changes.

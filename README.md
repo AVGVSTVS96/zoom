@@ -18,7 +18,7 @@ Keys           1       Saturday morning         can you book a van
 Every level is the chat itself, whole and in chat order, cut into exchanges ("sets") under section headings.
 
 - **Map**: each exchange as one line, with how many messages it holds, under headings with their time.
-- **Short**: each exchange rewritten by Muse Wonder, still a chat. A rewrite stands in for its messages only when a separate check finds nothing lost and nothing added; otherwise Short shows the originals, marked "original".
+- **Short**: each exchange summarized by Claude Haiku 5.5 to at most half its length, still a chat.
 - **Full**: every message word for word, with its time, the message it replies to, photos and polls.
 
 Pinch, tap a row or a message, or use the control at the bottom. The message under your fingers keeps its place. On a screen wide enough for a map beside the chat (an open Duo on its side), the map stays on the left.
@@ -30,11 +30,11 @@ Pinch, tap a row or a message, or use the control at the bottom. The message und
 ```
 data/general.json ─┐                                 (the thread, kept out of git)
 data/structure.json├─ scripts/content.ts ─▶ app/content.json ─▶ the app, bundled at build
-data/zoom.json ────┘   (sections, sets, Muse Wonder's rewrites and their loss checks)
+data/zoom.json ────┘   (sections, sets and their summaries)
 ```
 
 - `app/` is an [Exact](https://github.com/expo/exact) app: `app.contract` holds the levels, the pinch, the anchors and the control, `parts.contract` a level's sections, titles and messages.
-- `pipeline/` writes `data/zoom.json`: Muse Wonder rewrites each set, another model checks it for loss.
+- `pipeline/` writes `data/zoom.json`: Haiku 5.5 summarizes each set to at most half its length.
 - `scripts/sim` drives the app on an iPhone Duo simulator in each pose, light and dark; `scripts/ship` builds it on a Mac, signs it and puts it on [hangar](https://github.com/AVGVSTVS96/hangar).
 
 ## License
