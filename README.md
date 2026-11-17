@@ -18,7 +18,7 @@ Keys           1       Saturday morning         can you book a van
 Every level is the chat itself, whole and in chat order, cut into exchanges ("sets") under section headings.
 
 - **Map**: each exchange as one line, with how many messages it holds, under headings with their time.
-- **Short**: each exchange summarized by Claude Haiku 5.5 to at most half its length, still a chat.
+- **Short**: each exchange summarized by Claude Haiku 5.5 to about half its length, never shorter, still a chat.
 - **Full**: every message word for word, with its time, the message it replies to, photos and polls.
 
 Pinch, tap a row or a message, or use the control at the bottom. The message under your fingers keeps its place. On a screen wide enough for a map beside the chat (an open Duo on its side), the map stays on the left.
@@ -34,7 +34,7 @@ data/zoom.json ────┘   (sections, sets and their summaries)
 ```
 
 - `app/` is an [Exact](https://github.com/expo/exact) app: `app.contract` holds the levels, the pinch, the anchors and the control, `parts.contract` a level's sections, titles and messages.
-- `pipeline/` writes `data/zoom.json`: Haiku 5.5 summarizes each set to at most half its length.
+- `pipeline/` writes `data/zoom.json`: Haiku 5.5 summarizes each set to about half its length, never shorter.
 - `scripts/sim` drives the app on an iPhone Duo simulator in each pose, light and dark; `scripts/ship` builds it on a Mac, signs it and puts it on [hangar](https://github.com/AVGVSTVS96/hangar).
 
 ## License

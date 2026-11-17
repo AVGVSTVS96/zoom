@@ -46,7 +46,7 @@ Four things the design needs from `zoom.json`:
 1. A set's rewrite is a short run of messages, each with its author and `from`, the ids of the originals it carries. Level 2 is still a chat, and `from` is how a pinch finds its place.
 2. A message keeps the text of the message it replies to.
 3. A message that is older than the window and was edited inside it says so, and its time is the edit's.
-4. A set's summary is at most half its originals' length.
+4. A set's summary is about half its originals' length, never shorter.
 
 ## From the post
 

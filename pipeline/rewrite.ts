@@ -1,7 +1,7 @@
 import { claude } from "./llm";
 import type { Message, Rewritten } from "./types";
 
-const system = `You summarize a stretch of a Telegram chat between Bassim ("owner") and hex, his AI assistant, into a version he reads in place of the originals, at most half their length.
+const system = `You summarize a stretch of a Telegram chat between Bassim ("owner") and hex, his AI assistant, into a version he reads in place of the originals: about half their length, never shorter.
 
 Keep what he needs: decisions, results, numbers, names, links, open questions and what waits on him, each said once in its final form. Drop drafts a later message replaced, reasoning, repetition, hedges, greetings and filler. Merge hex's messages in a row into one. Write plain, natural sentences in each speaker's own voice, with hex speaking to Bassim as "you". Links and anything meant to be copied stay exactly as written.
 
@@ -56,12 +56,11 @@ export const length = (texts: { text: string }[]) => texts.reduce((n, m) => n + 
 type Draft = { messages: Omit<Rewritten, "images">[] };
 
 async function draft(messages: Message[], previous?: Draft): Promise<Rewritten[]> {
-  const limit = Math.floor(length(messages) / 2);
-  const aim = Math.floor(length(messages) * 0.4);
+  const floor = Math.ceil(length(messages) / 2);
   const originals = messages.map(render).join("\n\n");
   const ask = previous
-    ? `${originals}\n\nYour summary came out at ${length(previous.messages)} characters, over the limit of ${limit}:\n\n${JSON.stringify(previous)}\n\nCut it to about ${aim}, never over ${limit}.`
-    : `${originals}\n\nThese are ${length(messages)} characters; aim for about ${aim}, never over ${limit}.`;
+    ? `${originals}\n\nYour summary came out at ${length(previous.messages)} characters, under the floor of ${floor}:\n\n${JSON.stringify(previous)}\n\nWrite it again at ${floor} characters or more, putting back what it cut.`
+    : `${originals}\n\nThese are ${length(messages)} characters; aim for about ${floor} and never fewer.`;
   const out = await claude<Draft>(system, ask, schema);
   const ids = new Set(messages.map((m) => m.id));
   return out.messages.flatMap((r) => {
@@ -71,12 +70,10 @@ async function draft(messages: Message[], previous?: Draft): Promise<Rewritten[]
   });
 }
 
-/** Haiku's summary of a set, at most half its length: it cuts again, up to twice, while it runs over. */
+/** Haiku's summary of a set, at least half its length: one more try if the first comes out short. */
 export async function summarize(messages: Message[]): Promise<Rewritten[]> {
-  let best = await draft(messages);
-  for (let n = 0; n < 2 && length(best) > length(messages) / 2; n++) {
-    const next = await draft(messages, { messages: best.map(({ author, text, from }) => ({ author, text, from })) });
-    if (length(next) < length(best)) best = next;
-  }
-  return best;
+  const first = await draft(messages);
+  if (length(first) >= length(messages) / 2) return first;
+  const second = await draft(messages, { messages: first.map(({ author, text, from }) => ({ author, text, from })) });
+  return length(second) > length(first) ? second : first;
 }
