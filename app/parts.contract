@@ -12,6 +12,7 @@ shape Msg
   poll: string[]
   top: bool
   tail: bool
+  room: string
 
 shape Set
   id: string
@@ -57,7 +58,8 @@ component Body
           Bubble(m=m, full=full)
 
 // One message's bubble, Telegram's shape: 16pt corners, 8pt where it joins the next or last message
-// from the same side, and on the last of a run a square corner the tail grows out of.
+// from the same side, and the tail on the last of a run. At Full the time sits on the last line, in
+// room the text keeps for it (`room`), as Telegram sets it: the time's row is pulled up into it.
 component Bubble
   props
     m: Msg
@@ -66,35 +68,40 @@ component Bubble
   derive ink = m.mine ? "bubbleOutInk" : "-exact-label"
   derive meta = m.mine ? "bubbleOutMeta" : "bubbleInMeta"
   derive accent = m.mine ? "bubbleOutInk" : "linkInk"
-  // The tail sits beside the bubble, not in it: a rounded view clips what it holds.
+  // The tail sits beside the bubble, not in it: a rounded view clips what it holds. It goes under the
+  // bubble, which keeps the time in its corner on top.
   view
-    column position="relative" max-width="min(86%, 30rem)" min-width=0
+    column position="relative" max-width="min(90%, 32rem)" min-width=0
       if m.tail
         Tail(mine=m.mine)
-      column box-sizing="border-box" padding=(bare ? "3px" : "6px 11px 7px 12px") gap=4
-        background-color=(m.mine ? "bubbleOut" : "bubbleIn") accent-color=accent
-        border-top-left-radius=(m.mine or m.top ? 16 : 8) border-bottom-left-radius=(m.mine ? 16 : (m.tail ? 0 : 8))
-        border-top-right-radius=(not m.mine or m.top ? 16 : 8) border-bottom-right-radius=(not m.mine ? 16 : (m.tail ? 0 : 8))
+      column position="relative" box-sizing="border-box" padding=(bare ? "2px" : "6px 11px 6px 12px") gap=4
+        background-color=(m.mine ? "bubbleOut" : "bubbleIn") accent-color=accent -exact-tint-color=accent
+        border-top-left-radius=(m.mine or m.top ? 16 : 8) border-bottom-left-radius=(m.mine or m.tail ? 16 : 8)
+        border-top-right-radius=(not m.mine or m.top ? 16 : 8) border-bottom-right-radius=(not m.mine or m.tail ? 16 : 8)
         if full and m.note != ""
-          text m.note font="-exact-subheadline" font-weight=600 color=accent line-clamp=1
+          text m.note font="-exact-subheadline" font-weight=600 color=accent line-clamp=2
         if full and m.reply != ""
           row gap=7 padding="5px 8px 5px 0" border-radius=6 overflow="hidden" background-color=(m.mine ? "quoteOut" : "quoteIn") margin="2px 0"
             box width=3 align-self="stretch" background-color=accent
             text m.reply font="-exact-subheadline" color=ink line-clamp=2 flex=1 min-width=0
+        // A photo over words runs to the bubble's edges, as Telegram's does; the bubble rounds it.
         if m.image != ""
-          column position="relative" width="100%"
-            image m.image width="100%" max-width="18rem" border-radius=(bare ? 13 : 8) object-fit="cover" aria-label="Photo"
+          column position="relative" margin=(bare ? "0" : "-6px -11px 2px -12px")
+            image m.image width="100%" max-width=(bare ? "18rem" : "none") border-radius=(bare ? 14 : 0) object-fit="cover" aria-label="Photo"
             if full and bare
               text m.time position="absolute" right=6 bottom=6 padding="1px 7px" border-radius=10 background-color="rgba(0,0,0,0.42)"
-                font-size=12 color="#ffffff" font-variant-numeric="tabular-nums"
+                font-size=11 color="#ffffff" font-variant-numeric="tabular-nums"
         if m.text != ""
-          row flex-wrap="wrap" justify-content="flex-end" align-items="flex-end" column-gap=10
-            text m.text markup="markdown" font="-exact-body" color=ink overflow-wrap="break-word" flex="1 1 auto" min-width=0
-            if full and m.poll.length == 0
-              Stamp(time=m.time, color=meta)
+          text (full and m.poll.length == 0 ? `${m.text}${m.room}` : m.text) markup="markdown" font="-exact-body"
+            font-weight=(m.poll.length > 0 ? 600 : 400) color=ink overflow-wrap="break-word" hyphens="none"
+        if m.poll.length > 0
+          text "Poll" font="-exact-footnote" color=meta
+        if full and m.text != "" and m.poll.length == 0
+          row justify-content="flex-end" margin-top=-18 pointer-events="none"
+            Stamp(time=m.time, color=meta)
         for o in m.poll key=o
-          row gap=10 align-items="center" padding="6px 0 2px"
-            box width=18 height=18 border-radius=9 border-width=1.5 border-style="solid" border-color=meta box-sizing="border-box" flex-shrink=0
+          row gap=10 align-items="flex-start" padding="6px 0 2px"
+            box width=18 height=18 margin-top=2 border-radius=9 border-width=1.5 border-style="solid" border-color=meta box-sizing="border-box" flex-shrink=0
             text o font="-exact-body" color=ink flex=1 min-width=0
         if full and m.poll.length > 0
           row justify-content="flex-end"
@@ -105,18 +112,17 @@ component Stamp
     time: string
     color: string
   view
-    text time font-size=12 line-height="14px" color=color font-variant-numeric="tabular-nums" white-space="nowrap" margin-bottom=-3 flex-shrink=0
+    text time font="-exact-caption2" color=color white-space="nowrap" flex-shrink=0
 
-// Telegram's tail (ChatMessageBubbleImages.swift): a foot that kicks out 5pt from the bubble's bottom
-// corner, its upper edge cut by an ellipse. Telegram draws it in a 39 by 33 box with the bubble's edge at
-// 33; this is that box's bottom-right 22.5 by 17, the bubble's edge 6 in from the right. Only the foot
-// is drawn, half a point into the bubble, so the two edges never meet in a seam.
+// Telegram's tail (ChatMessageBubbleImages.swift): below the 16pt corner a foot curls out 5pt, its
+// upper edge cut by an ellipse. Telegram draws it in a 39 by 33 box with the bubble's edge at
+// 33; this is that box's bottom-right 22.5 by 17, the bubble's edge 6 in from the right.
 component Tail
   props
     mine: bool
   view
     svg position="absolute" bottom=0 left=(mine ? "auto" : "-6px") right=(mine ? "-6px" : "auto") width=22.5 height=17 viewBox="0 0 22.5 17" aria-hidden=true
-      path d=(mine ? "M 16 8.5 L 16.5 8.5 A 11.5 10.5 0 0 0 21.25 17 L 16 17 Z" : "M 6.5 8.5 L 6 8.5 A 11.5 10.5 0 0 1 1.25 17 L 6.5 17 Z")
+      path d=(mine ? "M 0 0 L 16.5 0 L 16.5 8.5 A 11.5 10.5 0 0 0 21.25 17 L 21 17 Q 7.5 17 7.5 8.5 L 7.5 9 L 0 9 Z" : "M 22.5 0 L 6 0 L 6 8.5 A 11.5 10.5 0 0 1 1.25 17 L 1.5 17 Q 15 17 15 8.5 L 15 9 L 22.5 9 Z")
         fill=(mine ? "bubbleOut" : "bubbleIn")
 
 // A section heading, as a chat marks a new day: a capsule centred over the wallpaper.
@@ -142,11 +148,11 @@ component Map
     column width="100%" padding="8px 16px 0" box-sizing="border-box"
       text content.totals font="-exact-footnote" color="-exact-secondary-label" text-align="center" padding="8px 0 0" testId="side-totals"
       for s in content.sections key=s.id
-        column padding="22px 0 6px"
+        column padding="22px 0 8px"
           Heading(title=s.title, time=s.time)
         column border-radius=16 overflow="hidden" background-color="bubbleIn"
           for t in s.sets key=t.id
-            row testId=`side-${t.id}` press=open(t.id) align-items="baseline" gap=8 padding="10px 14px" position="relative"
+            row testId=`side-${t.id}` press=open(t.id) align-items="baseline" gap=8 padding="11px 14px" position="relative"
               background-color=(t.id == current ? "current" : "transparent")
               text t.title font="-exact-headline" color="-exact-label" flex=1 min-width=0
               text `${t.count}` font="-exact-subheadline" color="-exact-secondary-label" font-variant-numeric="tabular-nums"

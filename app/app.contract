@@ -18,9 +18,9 @@ theme
   linkInk="light-dark(#2481cc, #6ab3f3)"
   quoteIn="light-dark(rgba(36,129,204,0.10), rgba(106,179,243,0.13))"
   quoteOut="rgba(255,255,255,0.18)"
-  service="light-dark(rgba(46,62,104,0.30), rgba(255,255,255,0.11))"
+  service="light-dark(rgba(36,48,84,0.44), rgba(255,255,255,0.12))"
   serviceInk="#ffffff"
-  serviceMeta="rgba(255,255,255,0.75)"
+  serviceMeta="rgba(255,255,255,0.82)"
   current="light-dark(rgba(58,143,240,0.13), rgba(62,136,247,0.22))"
 
 routes nav
@@ -43,9 +43,9 @@ fn opens(weight: number): number = min(1, weight * 4)
 
 // Where the anchor is in the chat at `z`, less what never moves. Above it, each set's body is its
 // Short and Full heights shared by the levels (`short`, `full`, the anchor's own offset into its set
-// included), each set title's padding gives 8 toward the map, each section heading's 10, and the
+// included), each set title's padding gives 4 toward the map, each section heading's 6, and the
 // totals line opens.
-fn place(z: number, totals: number, sections: number, sets: number, short: number, full: number): number = (totals - 10 * sections - 8 * (sets + 1)) * mapOf(z) + short * shortOf(z) + full * fullOf(z)
+fn place(z: number, totals: number, sections: number, sets: number, short: number, full: number): number = (totals - 6 * sections - 4 * (sets + 1)) * mapOf(z) + short * shortOf(z) + full * fullOf(z)
 
 // The place at level `b` for `key` at level `a`: the same key, unless content.anchors names another.
 fn hop(anchors: string[], a: number, b: number, key: string): string = match anchors.filter(x => x.startsWith(`${a}${b}:${key}=`)).at(0) { case some(x) => x.slice(key.length + 4), case none => key }
@@ -221,14 +221,17 @@ component App
   view
     main testId="root" navigationKey=`${top(nav).id}` width="100%" height="100%" accent-color="bubbleOut"
       for e in stack(nav) key=e.id
-        row navigationKey=`${e.id}` navigationScroll="chat" position="absolute" inset=0 -exact-safe-area="bottom"
+        // The wallpaper runs under the bars and the cover's side strip; the content keeps clear of them
+        // but the bottom, where the chat scrolls under the home indicator.
+        row navigationKey=`${e.id}` navigationScroll="chat" position="absolute" inset=0 -exact-safe-area="none"
+          padding="var(--exact-safe-area-inset-top) var(--exact-safe-area-inset-right) 0 var(--exact-safe-area-inset-left)" box-sizing="border-box"
+          background-image="linear-gradient(165deg, wallTop 0%, wallMid 55%, wallEnd 100%)"
           if side
-            scroll id="side" width="18.75rem" flex-shrink=0 testId="side" background-color="-exact-grouped-background"
+            scroll id="side" width="18.75rem" flex-shrink=0 testId="side"
               column padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 24px)"
                 Map(content=content, current=reading, open=show)
             box width=0.5 flex-shrink=0 background-color="-exact-separator"
           column flex=1 min-width=0 position="relative" display="flex" flex-direction="column"
-            background-image="linear-gradient(165deg, wallTop 0%, wallMid 55%, wallEnd 100%)"
             scroll id="chat" testId="chat" flex=1 min-height=0 scrollTop=scrollY scroll=moved
               column width="100%" align-items="center" position="relative" padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 96px)" box-sizing="border-box"
                 zoom-pinch level=`${level}` stops=`${highest}` ask=ask still=(still ? "true" : "false") change=pinch
@@ -238,7 +241,7 @@ component App
                     text content.totals font="-exact-footnote" color="-exact-secondary-label" text-align="center" padding="8px 0 0" testId="totals" resize=sized("totals", 0)
                   for s in content.sections key=s.id
                     column id=`s-${s.id}`
-                      column padding=`${34 - 12 * mapOf(at)}px 0 ${2 + 2 * mapOf(at)}px`
+                      column padding=`${34 - 12 * mapOf(at)}px 0 ${2 + 6 * mapOf(at)}px`
                         Heading(title=s.title, time=s.time)
                       for t in s.sets key=t.id
                         Exchange(set=t, first=(match s.sets.at(0) { case some(x) => x.id == t.id, case none => false }), last=(match s.sets.at(-1) { case some(x) => x.id == t.id, case none => false }), z=at, moving=moving, still=still, short=nth(shorts, sets.indexOf(t.id)), full=nth(fulls, sets.indexOf(t.id)), sized=sized, open=open)
@@ -273,7 +276,7 @@ component Exchange
   view
     column
       column id=`t-${set.id}` testId=`t-${set.id}` press=open(`t-${set.id}`) gap=2 position="relative"
-        padding=`${18 - 9 * mapOf(z)}px 10px ${8 + mapOf(z)}px` margin="0 -10px"
+        padding=`${18 - 7 * mapOf(z)}px 10px ${8 + 3 * mapOf(z)}px` margin="0 -10px"
         // On the map the section's titles join into one rounded group, as they fade in.
         box position="absolute" inset=0 background-color="bubbleIn" opacity=opens(mapOf(z)) pointer-events="none"
           border-top-left-radius=(first ? 16 : 0) border-top-right-radius=(first ? 16 : 0)

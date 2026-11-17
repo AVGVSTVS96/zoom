@@ -73,7 +73,8 @@ const photo = (file?: string) => {
 // replies to, a photo, a poll's options and who forwarded or sent it; Short is the summary's text alone.
 // A post older than the window and edited inside it shows the edit's time.
 type Raw2 = Raw & { older_message_edited_in_window?: boolean; sent_by?: string | null };
-const message = (key: string, m: Raw2) => ({
+const withRoom = <M extends { time: string }>(m: M) => ({ ...m, room: room(m.time) });
+const message = (key: string, m: Raw2) => withRoom({
   key,
   mine: m.author === "owner",
   text: m.image && m.text === "(photo)" ? "" : m.text,
@@ -86,6 +87,9 @@ const message = (key: string, m: Raw2) => ({
 // Messages in a row from one side join, as a chat draws them: `top` opens a run, `tail` closes it.
 const runs = <M extends { mine: boolean }>(list: M[]) =>
   list.map((m, i) => ({ ...m, top: list[i - 1]?.mine !== m.mine, tail: list[i + 1]?.mine !== m.mine }));
+// The room a message's last line keeps for its time: no-break spaces about as wide as the time at
+// 11pt, after an ordinary space, so a full last line puts the time on a line of its own.
+const room = (time: string) => (time ? ` ${"\u00a0".repeat(Math.ceil((time.length * 5.9 + 8) / 4.4))}` : "");
 const shown = (m: Raw2) => m.older_message_edited_in_window ? m.edited_at ?? m.at : m.at;
 
 // Where a zoom lands: `<from level><to level>:<key>=<key>` for every place whose key differs between
@@ -113,7 +117,7 @@ const sections = structure.sections.map((section) => ({
           let key = first ? `msg-${first}` : `${set.id}-${n}`;
           if (used.has(key)) key = `${key}-${n}`;
           used.add(key);
-          return { ...message(key, { ...byId.get(first ?? msgs[0].id)!, text: r.text, image: r.images[0] }), time: "", reply: "", note: "", from: r.from };
+          return { ...message(key, { ...byId.get(first ?? msgs[0].id)!, text: r.text, image: r.images[0] }), time: "", room: "", reply: "", note: "", from: r.from };
         })
       : full.map((m) => ({ ...m, from: [Number(m.key.slice(4))] }));
     if (rewrite) {
