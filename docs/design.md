@@ -89,9 +89,9 @@ The title is the handle. A set's title is the same words at the same left edge a
 
 What is on screen, and nothing else:
 
-- **Section heading**: its title, and the time of its first message on the right.
-- **Set title**, with its message count on the map, so a row says how much is behind it.
-- **Body.** Your messages sit right in a bubble and hex's run full width as text, at Short and at Full. Full adds each message's time, the quoted message under a reply, the photo, a poll's options, and "forwarded" or "edited" where true.
+- **Section heading**: a capsule centred over the chat, as Telegram marks a new day: its title and the time of its first message.
+- **Set title**, with its message count on the map, so a row says how much is behind it. On the map a section's titles join into one rounded group.
+- **Body.** A chat as Telegram draws one: your messages in blue bubbles on the right, hex's in white (charcoal in dark) on the left, over a soft wallpaper. Messages in a row from one side join, and the last carries the tail. Full adds each message's time inside its bubble ("edited" before it where true), the quoted message above a reply, the photo, a poll's options, and who forwarded or sent it.
 - **One line of totals** above the first section on the map: messages, sets, and the lossless number (see [Lossless](#lossless)).
 
 The newest message is at the bottom, where a chat keeps it. The app opens at Short on the newest set, and after that comes back to the level and message it was left on.

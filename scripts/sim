@@ -47,7 +47,8 @@ bun exact.mjs ios --sim "$id" --json 2>~/Developer/zoom-build/sim-build.log | ta
 MAC
 flock -u 9
 
-# ssh joins its arguments into one command line, so each is quoted for the Mac's shell.
+# ssh joins its arguments into one command line, so each is quoted for the Mac's shell. The script
+# comes in on stdin, so every command in it reads /dev/null instead, or it would eat the script's rest.
 ssh mac bash -s -- "$(printf "%q " "$POSES" "$APPEARANCES" "${TESTS:-}" "$@")" <<'MAC'
 set -euo pipefail
 poses=$1 appearances=$2 tests=$3
@@ -57,14 +58,14 @@ export DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
 # Exact's display reads go through scripts/display/xcrun, which names the screen the pose is on.
 export PATH=~/Developer/zoom/scripts/display:$PATH
 id=$(xcrun simctl list devices -j | jq -r '[.devices[][] | select(.name == "zoom Duo")][0].udid')
-xcrun simctl status_bar "$id" override --time 9:41 --batteryLevel 100 --cellularBars 4 2>/dev/null || true
+xcrun simctl status_bar "$id" override --time 9:41 --batteryLevel 100 --cellularBars 4 </dev/null 2>/dev/null || true
 hub=~/Developer/zoom-build/devicehub-sim
 hubdo() { xcrun simctl spawn "$id" "$hub" "$@" </dev/null; }
-drive() { bun exact.mjs agent ios --sim "$id" --scale 3 "$@" 2>&1; }
+drive() { bun exact.mjs agent ios --sim "$id" --scale 3 "$@" 2>&1 </dev/null; }
 out=~/Developer/zoom-build/shots
 rm -rf "$out" && mkdir -p "$out"
 cd ~/Developer/zoom/app
-[ -z "$tests" ] || bun exact.mjs test ios --sim "$id" 2>&1 | grep -E "^test|passed|failed|line [0-9]+:" | cut -c1-400 || true
+[ -z "$tests" ] || bun exact.mjs test ios --sim "$id" 2>&1 </dev/null | grep -E "^test|passed|failed|line [0-9]+:" | cut -c1-400 || true
 hinge_at=
 for pose in $poses; do
   case ${pose%-*} in cover) hinge=0 SIM_DISPLAY=LCD ;; open) hinge=180 SIM_DISPLAY=LCD-1 ;; esac
@@ -79,12 +80,12 @@ for pose in $poses; do
   ops=("$@")
   if [ ${#ops[@]} -eq 0 ]; then
     ops=("clock data" "clock settle" "screenshot short.png" "tap zoom-1" "clock settle" "screenshot full.png")
-    levels=$(drive --json "clock data" "state levels" | tail -1)
-    jq -e '.value | index(3)' <<<"$levels" >/dev/null && ops+=("tap zoom-3" "clock settle" "screenshot map.png")
+    highest=$(drive --json "clock data" "state highest" | tail -1)
+    jq -e '.value == 3' <<<"$highest" >/dev/null && ops+=("tap zoom-3" "clock settle" "screenshot map.png")
     ops+=("state viewport")
   fi
   for appearance in $appearances; do
-    xcrun simctl ui "$id" appearance "$appearance"
+    xcrun simctl ui "$id" appearance "$appearance" </dev/null
     run=()
     for op in "${ops[@]}"; do
       read -ra w <<<"$op"

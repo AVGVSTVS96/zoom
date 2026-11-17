@@ -69,20 +69,23 @@ const photo = (file?: string) => {
   return `assets/media/${basename(file)}`;
 };
 
-// A message as its level shows it: Full adds its time, the message it replies to, a photo, a poll's
-// options and whether it was forwarded or edited; Short is the summary's text alone. A post older than
-// the window and edited inside it shows the edit's time.
+// A message as its level shows it: Full adds its time ("edited" before it when it was), the message it
+// replies to, a photo, a poll's options and who forwarded or sent it; Short is the summary's text alone.
+// A post older than the window and edited inside it shows the edit's time.
 type Raw2 = Raw & { older_message_edited_in_window?: boolean; sent_by?: string | null };
 const message = (key: string, m: Raw2) => ({
   key,
   mine: m.author === "owner",
   text: m.image && m.text === "(photo)" ? "" : m.text,
-  time: m.older_message_edited_in_window ? when(m.edited_at ?? m.at) : time(m.at),
+  time: `${m.edited_at ? "edited " : ""}${m.older_message_edited_in_window ? when(m.edited_at ?? m.at) : time(m.at)}`,
   image: photo(m.image),
   reply: m.reply_to_text ? oneLine(m.reply_to_text).slice(0, 160) : "",
-  note: [m.forwarded_from && "forwarded", m.edited_at && "edited", m.sent_by && `sent by ${m.sent_by}`].filter(Boolean).join(" · "),
+  note: [m.forwarded_from && "Forwarded", m.sent_by && `Sent by ${m.sent_by}`].filter(Boolean).join(" · "),
   poll: m.poll_options ? m.poll_options.split(" / ") : [],
 });
+// Messages in a row from one side join, as a chat draws them: `top` opens a run, `tail` closes it.
+const runs = <M extends { mine: boolean }>(list: M[]) =>
+  list.map((m, i) => ({ ...m, top: list[i - 1]?.mine !== m.mine, tail: list[i + 1]?.mine !== m.mine }));
 const shown = (m: Raw2) => m.older_message_edited_in_window ? m.edited_at ?? m.at : m.at;
 
 // Where a zoom lands: `<from level><to level>:<key>=<key>` for every place whose key differs between
@@ -134,8 +137,8 @@ const sections = structure.sections.map((section) => ({
       count: msgs.length,
       kept: "",
       original: !rewrite,
-      short: short.map(({ from, ...m }) => m),
-      full,
+      short: runs(short.map(({ from, ...m }) => m)),
+      full: runs(full),
     };
   }),
 }));

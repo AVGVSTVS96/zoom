@@ -2,7 +2,26 @@
 // exchange 2 (Short), the map of sections 3 (Map). Two fingers move the chat along the scale anywhere on
 // it: bodies grow or shrink and their contents cross-dissolve with the fingers, and letting go springs
 // it to a stop. The place under the fingers stays under them (docs/design.md, Zooming).
-use Content, Set, Body, Map from "./parts.contract"
+use Content, Set, Body, Heading, Map from "./parts.contract"
+
+// Telegram's palette, light and dark: white and charcoal bubbles for hex, its blue for yours, on a
+// soft wallpaper; the service capsules over it are its date marks.
+theme
+  wallTop="light-dark(#b9cdea, #0e1422)"
+  wallMid="light-dark(#cec9e9, #120f1d)"
+  wallEnd="light-dark(#c2ddd6, #0a1613)"
+  bubbleIn="light-dark(#ffffff, #212227)"
+  bubbleOut="light-dark(#3a8ff0, #3e88f7)"
+  bubbleOutInk="#ffffff"
+  bubbleInMeta="light-dark(#8d939c, #85878e)"
+  bubbleOutMeta="rgba(255,255,255,0.72)"
+  linkInk="light-dark(#2481cc, #6ab3f3)"
+  quoteIn="light-dark(rgba(36,129,204,0.10), rgba(106,179,243,0.13))"
+  quoteOut="rgba(255,255,255,0.18)"
+  service="light-dark(rgba(46,62,104,0.30), rgba(255,255,255,0.11))"
+  serviceInk="#ffffff"
+  serviceMeta="rgba(255,255,255,0.75)"
+  current="light-dark(rgba(58,143,240,0.13), rgba(62,136,247,0.22))"
 
 routes nav
   home "/"
@@ -200,30 +219,29 @@ component App
     haptic("selection")
 
   view
-    main testId="root" navigationKey=`${top(nav).id}` width="100%" height="100%" accent-color="-exact-system-indigo"
+    main testId="root" navigationKey=`${top(nav).id}` width="100%" height="100%" accent-color="bubbleOut"
       for e in stack(nav) key=e.id
         row navigationKey=`${e.id}` navigationScroll="chat" position="absolute" inset=0 -exact-safe-area="bottom"
           if side
-            scroll id="side" width="18.75rem" flex-shrink=0 testId="side"
+            scroll id="side" width="18.75rem" flex-shrink=0 testId="side" background-color="-exact-grouped-background"
               column padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 24px)"
                 Map(content=content, current=reading, open=show)
             box width=0.5 flex-shrink=0 background-color="-exact-separator"
           column flex=1 min-width=0 position="relative" display="flex" flex-direction="column"
+            background-image="linear-gradient(165deg, wallTop 0%, wallMid 55%, wallEnd 100%)"
             scroll id="chat" testId="chat" flex=1 min-height=0 scrollTop=scrollY scroll=moved
               column width="100%" align-items="center" position="relative" padding="0 0 calc(var(--exact-safe-area-inset-bottom) + 96px)" box-sizing="border-box"
                 zoom-pinch level=`${level}` stops=`${highest}` ask=ask still=(still ? "true" : "false") change=pinch
                   position="absolute" left=0 top=0 width=1 height=1 pointer-events="none" aria-hidden=true
                 column width="100%" max-width="40rem" padding="8px 20px 0 22px" box-sizing="border-box"
                   column overflow="hidden" height=(moving ? `${totals * mapOf(at)}px` : (at == 3 ? "auto" : "0px")) opacity=opens(mapOf(at))
-                    text content.totals font="-exact-footnote" color="-exact-secondary-label" padding="8px 0 0" testId="totals" resize=sized("totals", 0)
+                    text content.totals font="-exact-footnote" color="-exact-secondary-label" text-align="center" padding="8px 0 0" testId="totals" resize=sized("totals", 0)
                   for s in content.sections key=s.id
                     column id=`s-${s.id}`
-                      row align-items="baseline" gap=8 padding=`${34 - 12 * mapOf(at)}px 0 ${2 + 2 * mapOf(at)}px`
-                        text s.title font="-exact-footnote" font-weight=600 color="-exact-secondary-label" text-transform="uppercase" letter-spacing=0.6
-                          flex=1 min-width=0 role="heading" aria-level=2
-                        text s.time font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
+                      column padding=`${34 - 12 * mapOf(at)}px 0 ${2 + 2 * mapOf(at)}px`
+                        Heading(title=s.title, time=s.time)
                       for t in s.sets key=t.id
-                        Exchange(set=t, z=at, moving=moving, still=still, short=nth(shorts, sets.indexOf(t.id)), full=nth(fulls, sets.indexOf(t.id)), sized=sized, open=open)
+                        Exchange(set=t, first=(match s.sets.at(0) { case some(x) => x.id == t.id, case none => false }), last=(match s.sets.at(-1) { case some(x) => x.id == t.id, case none => false }), z=at, moving=moving, still=still, short=nth(shorts, sets.indexOf(t.id)), full=nth(fulls, sets.indexOf(t.id)), sized=sized, open=open)
             // The control: Map, Short, Full. Its thumb follows the chat along the scale, fingers and all.
             row position="absolute" left=0 right=0 bottom="calc(var(--exact-safe-area-inset-bottom) + 6px)" justify-content="center" pointer-events="none"
               row backgroundMaterial="glass" border-radius=24 padding=4 pointer-events="auto" width=(side ? "12rem" : "17rem") max-width="calc(100% - 48px)"
@@ -243,6 +261,8 @@ component App
 component Exchange
   props
     set: Set
+    first: bool
+    last: bool
     z: number
     moving: bool
     still: bool
@@ -252,12 +272,19 @@ component Exchange
     open: action
   view
     column
-      column id=`t-${set.id}` testId=`t-${set.id}` press=open(`t-${set.id}`) gap=2
-        padding=`${18 - 9 * mapOf(z)}px 10px ${8 + mapOf(z)}px` margin="0 -10px" border-radius=10
-        row align-items="baseline" gap=8
+      column id=`t-${set.id}` testId=`t-${set.id}` press=open(`t-${set.id}`) gap=2 position="relative"
+        padding=`${18 - 9 * mapOf(z)}px 10px ${8 + mapOf(z)}px` margin="0 -10px"
+        // On the map the section's titles join into one rounded group, as they fade in.
+        box position="absolute" inset=0 background-color="bubbleIn" opacity=opens(mapOf(z)) pointer-events="none"
+          border-top-left-radius=(first ? 16 : 0) border-top-right-radius=(first ? 16 : 0)
+          border-bottom-left-radius=(last ? 16 : 0) border-bottom-right-radius=(last ? 16 : 0)
+        if not last
+          box position="absolute" left=10 right=0 bottom=0 height=0.5 background-color="-exact-separator" opacity=opens(mapOf(z)) pointer-events="none"
+        row align-items="baseline" gap=8 position="relative"
           text set.title font="-exact-headline" color="-exact-label" flex=1 min-width=0
-          text `${set.count}` font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums" opacity=opens(mapOf(z))
-      column position="relative" overflow="hidden" height=(moving ? `${short * shortOf(z) + full * fullOf(z)}px` : "auto")
+          text `${set.count}` font="-exact-subheadline" color="-exact-secondary-label" font-variant-numeric="tabular-nums" opacity=opens(mapOf(z))
+      // 6pt wider than the column on each side, which Body gives back, so the tails aren't clipped.
+      column position="relative" overflow="hidden" margin="0 -6px" height=(moving ? `${short * shortOf(z) + full * fullOf(z)}px` : "auto")
         column id=`c2-${set.id}` position=(not moving and z == 2 ? "relative" : "absolute") top=0 left=0 right=0
           opacity=(z > 2 ? opens(shortOf(z)) : shows(shortOf(z))) inert=(shortOf(z) < 0.5) aria-hidden=(shortOf(z) < 0.5) resize=sized(set.id, 2)
           transition=(still ? "opacity 200ms ease" : "none")

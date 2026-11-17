@@ -10,6 +10,8 @@ shape Msg
   reply: string
   note: string
   poll: string[]
+  top: bool
+  tail: bool
 
 shape Set
   id: string
@@ -31,9 +33,10 @@ shape Content
   anchors: string[]
   sections: Section[]
 
-// A set's messages at Short or Full: yours on the right in a bubble, hex's full width as text. Full
-// leads with how much of the set the rewrite kept. A tap on a message at Short opens the originals it
-// carries.
+// A set's messages at Short or Full, as a chat draws them: yours in blue bubbles on the right, hex's
+// in white ones on the left. Messages in a row from one side join, the last with a tail. Full adds
+// each message's time inside its bubble, the message it replies to, and who forwarded or sent it. A
+// tap on a message at Short opens the originals it carries.
 component Body
   props
     n: number
@@ -43,48 +46,109 @@ component Body
     original: bool
     open: action
   view
-    column gap=10 padding="0 0 6px"
+    column padding="0 6px 6px"
       if kept != ""
-        text kept font="-exact-caption1" color=(kept == "lossless" ? "-exact-tertiary-label" : "-exact-system-orange")
+        text kept font="-exact-caption1" color=(kept == "lossless" ? "-exact-secondary-label" : "-exact-system-orange")
       if original
-        text "original" font="-exact-caption1" color="-exact-tertiary-label" text-transform="uppercase" letter-spacing=0.6
+        text "original" font="-exact-caption1" color="-exact-secondary-label" text-transform="uppercase" letter-spacing=0.6
       for m in messages key=m.key
         column id=`${n}-${m.key}` testId=`${n}-${m.key}` press=open(`${n}-${m.key}`)
-          align-items=(m.mine ? "flex-end" : "stretch") gap=4
-          if full
-            text (m.note != "" ? `${m.mine ? "you" : "hex"}  ${m.time} · ${m.note}` : `${m.mine ? "you" : "hex"}  ${m.time}`) font="-exact-caption1" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
-          column max-width=(m.mine ? "85%" : "100%") gap=6
-            padding=(m.mine ? (m.image != "" and m.text == "" ? "4px" : "8px 13px") : "0px") border-radius=18
-            background-color=(m.mine ? "-exact-secondary-background" : "transparent")
-            if full and m.reply != ""
-              row gap=8 padding="2px 0"
-                box width=2 border-radius=1 background-color="-exact-separator"
-                text m.reply font="-exact-footnote" color="-exact-secondary-label" line-clamp=2 flex=1 min-width=0
-            if m.image != ""
-              image m.image width="100%" max-width="18rem" border-radius=14 object-fit="cover" aria-label="Photo"
-            if m.text != ""
-              text m.text markup="markdown" font="-exact-body" color="-exact-label" overflow-wrap="break-word"
-            for o in m.poll key=o
-              row gap=8 align-items="center"
-                image "symbol:circle" width=15 height=15 color="-exact-tertiary-label"
-                text o font="-exact-subheadline" color="-exact-label" flex=1 min-width=0
+          align-items=(m.mine ? "flex-end" : "flex-start") padding-top=(m.top ? 8 : 2)
+          Bubble(m=m, full=full)
 
-// The map beside the chat on a wide screen: every section and set title, the set being read marked.
+// One message's bubble, Telegram's shape: 16pt corners, 8pt where it joins the next or last message
+// from the same side, and on the last of a run a square corner the tail grows out of.
+component Bubble
+  props
+    m: Msg
+    full: bool
+  derive bare = m.image != "" and m.text == "" and m.poll.length == 0
+  derive ink = m.mine ? "bubbleOutInk" : "-exact-label"
+  derive meta = m.mine ? "bubbleOutMeta" : "bubbleInMeta"
+  derive accent = m.mine ? "bubbleOutInk" : "linkInk"
+  // The tail sits beside the bubble, not in it: a rounded view clips what it holds.
+  view
+    column position="relative" max-width="min(86%, 30rem)" min-width=0
+      if m.tail
+        Tail(mine=m.mine)
+      column box-sizing="border-box" padding=(bare ? "3px" : "6px 11px 7px 12px") gap=4
+        background-color=(m.mine ? "bubbleOut" : "bubbleIn") accent-color=accent
+        border-top-left-radius=(m.mine or m.top ? 16 : 8) border-bottom-left-radius=(m.mine ? 16 : (m.tail ? 0 : 8))
+        border-top-right-radius=(not m.mine or m.top ? 16 : 8) border-bottom-right-radius=(not m.mine ? 16 : (m.tail ? 0 : 8))
+        if full and m.note != ""
+          text m.note font="-exact-subheadline" font-weight=600 color=accent line-clamp=1
+        if full and m.reply != ""
+          row gap=7 padding="5px 8px 5px 0" border-radius=6 overflow="hidden" background-color=(m.mine ? "quoteOut" : "quoteIn") margin="2px 0"
+            box width=3 align-self="stretch" background-color=accent
+            text m.reply font="-exact-subheadline" color=ink line-clamp=2 flex=1 min-width=0
+        if m.image != ""
+          column position="relative" width="100%"
+            image m.image width="100%" max-width="18rem" border-radius=(bare ? 13 : 8) object-fit="cover" aria-label="Photo"
+            if full and bare
+              text m.time position="absolute" right=6 bottom=6 padding="1px 7px" border-radius=10 background-color="rgba(0,0,0,0.42)"
+                font-size=12 color="#ffffff" font-variant-numeric="tabular-nums"
+        if m.text != ""
+          row flex-wrap="wrap" justify-content="flex-end" align-items="flex-end" column-gap=10
+            text m.text markup="markdown" font="-exact-body" color=ink overflow-wrap="break-word" flex="1 1 auto" min-width=0
+            if full and m.poll.length == 0
+              Stamp(time=m.time, color=meta)
+        for o in m.poll key=o
+          row gap=10 align-items="center" padding="6px 0 2px"
+            box width=18 height=18 border-radius=9 border-width=1.5 border-style="solid" border-color=meta box-sizing="border-box" flex-shrink=0
+            text o font="-exact-body" color=ink flex=1 min-width=0
+        if full and m.poll.length > 0
+          row justify-content="flex-end"
+            Stamp(time=m.time, color=meta)
+
+component Stamp
+  props
+    time: string
+    color: string
+  view
+    text time font-size=12 line-height="14px" color=color font-variant-numeric="tabular-nums" white-space="nowrap" margin-bottom=-3 flex-shrink=0
+
+// Telegram's tail (ChatMessageBubbleImages.swift): a foot that kicks out 5pt from the bubble's bottom
+// corner, its upper edge cut by an ellipse. Telegram draws it in a 39 by 33 box with the bubble's edge at
+// 33; this is that box's bottom-right 22.5 by 17, the bubble's edge 6 in from the right. Only the foot
+// is drawn, half a point into the bubble, so the two edges never meet in a seam.
+component Tail
+  props
+    mine: bool
+  view
+    svg position="absolute" bottom=0 left=(mine ? "auto" : "-6px") right=(mine ? "-6px" : "auto") width=22.5 height=17 viewBox="0 0 22.5 17" aria-hidden=true
+      path d=(mine ? "M 16 8.5 L 16.5 8.5 A 11.5 10.5 0 0 0 21.25 17 L 16 17 Z" : "M 6.5 8.5 L 6 8.5 A 11.5 10.5 0 0 1 1.25 17 L 6.5 17 Z")
+        fill=(mine ? "bubbleOut" : "bubbleIn")
+
+// A section heading, as a chat marks a new day: a capsule centred over the wallpaper.
+component Heading
+  props
+    title: string
+    time: string
+  view
+    row justify-content="center" width="100%"
+      row role="heading" aria-level=2 gap=6 align-items="baseline" max-width="100%" box-sizing="border-box"
+        padding="3px 10px 4px" border-radius=12 background-color="service"
+        text title font="-exact-footnote" font-weight=600 color="serviceInk" line-clamp=1 min-width=0
+        text time font="-exact-footnote" color="serviceMeta" font-variant-numeric="tabular-nums" flex-shrink=0
+
+// The map beside the chat on a wide screen: every section's sets in one rounded group, the set being
+// read marked.
 component Map
   props
     content: Content
     current: string
     open: action
   view
-    column width="100%" padding="8px 16px 0 22px" box-sizing="border-box"
-      text content.totals font="-exact-footnote" color="-exact-secondary-label" padding="8px 0 0" testId="side-totals"
+    column width="100%" padding="8px 16px 0" box-sizing="border-box"
+      text content.totals font="-exact-footnote" color="-exact-secondary-label" text-align="center" padding="8px 0 0" testId="side-totals"
       for s in content.sections key=s.id
-        row align-items="baseline" gap=8 padding="22px 0 4px"
-          text s.title font="-exact-footnote" font-weight=600 color="-exact-secondary-label" text-transform="uppercase" letter-spacing=0.6
-            flex=1 min-width=0 role="heading" aria-level=2
-          text s.time font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
-        for t in s.sets key=t.id
-          row testId=`side-${t.id}` press=open(t.id) align-items="baseline" gap=8 padding="9px 10px" margin="0 -10px" border-radius=10
-            background-color=(t.id == current ? "-exact-secondary-background" : "transparent")
-            text t.title font="-exact-headline" color="-exact-label" flex=1 min-width=0
-            text `${t.count}` font="-exact-footnote" color="-exact-tertiary-label" font-variant-numeric="tabular-nums"
+        column padding="22px 0 6px"
+          Heading(title=s.title, time=s.time)
+        column border-radius=16 overflow="hidden" background-color="bubbleIn"
+          for t in s.sets key=t.id
+            row testId=`side-${t.id}` press=open(t.id) align-items="baseline" gap=8 padding="10px 14px" position="relative"
+              background-color=(t.id == current ? "current" : "transparent")
+              text t.title font="-exact-headline" color="-exact-label" flex=1 min-width=0
+              text `${t.count}` font="-exact-subheadline" color="-exact-secondary-label" font-variant-numeric="tabular-nums"
+              if t.id != (match s.sets.at(-1) { case some(x) => x.id, case none => "" })
+                box position="absolute" left=14 right=0 bottom=0 height=0.5 background-color="-exact-separator"
